@@ -27,17 +27,7 @@ EcoVerse is a web application that helps users understand the environmental impa
 - **Scanning**: `@zxing/browser` for barcode recognition
 - **Cloud Functions**: Firebase Functions (TypeScript)
 
----
-## 👥 Contributors
-Imanat — UI/UX Design, Theming, Styling
 
-Shivangi Sharma — Backend Integration, MongoDB, Firebase Auth, Rewards Logic
-
-Harshit — Backend Integration, MongoDB, Firebase Sync, Rewards System
-
-Jatinder — Frontend Development, Scan Feature, Barcode Integration
-
----
 ## 📽️ Demo Video
 
 [▶️ Watch Demo Video on Google Drive](https://drive.google.com/file/d/1DDff6gDIA4S_em2jsJIeY2Z83XV7iJ65/view?usp=sharing)
