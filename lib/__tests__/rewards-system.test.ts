@@ -23,15 +23,22 @@ describe('Rewards System', () => {
 
     it('should calculate points for a daily scan with low carbon', () => {
       const result = calculateScanPoints(0.8, false, 1, 5);
-      expect(result.points).toBe(POINT_REWARDS.DAILY_SCAN + POINT_REWARDS.LOW_CARBON_SCAN);
+      expect(result.points).toBe(
+        POINT_REWARDS.DAILY_SCAN + POINT_REWARDS.LOW_CARBON_SCAN
+      );
       expect(result.isConfirmed).toBe(true); // userTotalScans >= 3
     });
 
     it('should calculate points for a very low carbon scan with streak', () => {
       const result = calculateScanPoints(0.4, false, 3, 10);
-      const expectedPoints = POINT_REWARDS.DAILY_SCAN + POINT_REWARDS.VERY_LOW_CARBON_SCAN + (3 * POINT_REWARDS.STREAK_BONUS);
+      const expectedPoints =
+        POINT_REWARDS.DAILY_SCAN +
+        POINT_REWARDS.VERY_LOW_CARBON_SCAN +
+        3 * POINT_REWARDS.STREAK_BONUS;
       expect(result.points).toBe(expectedPoints);
-      expect(result.reasons.some(r => r.includes('Very low carbon'))).toBe(true);
+      expect(result.reasons.some((r) => r.includes('Very low carbon'))).toBe(
+        true
+      );
     });
 
     it('should cap streak bonus at 100 points', () => {
@@ -42,9 +49,14 @@ describe('Rewards System', () => {
 
     it('should add weekly milestone bonus on 7th day streak', () => {
       const result = calculateScanPoints(1.5, false, 7, 7);
-      const expectedPoints = POINT_REWARDS.DAILY_SCAN + (7 * POINT_REWARDS.STREAK_BONUS) + POINT_REWARDS.WEEKLY_GOAL;
+      const expectedPoints =
+        POINT_REWARDS.DAILY_SCAN +
+        7 * POINT_REWARDS.STREAK_BONUS +
+        POINT_REWARDS.WEEKLY_GOAL;
       expect(result.points).toBe(expectedPoints);
-      expect(result.reasons.some(r => r.includes('Weekly milestone bonus'))).toBe(true);
+      expect(
+        result.reasons.some((r) => r.includes('Weekly milestone bonus'))
+      ).toBe(true);
     });
   });
 
@@ -82,17 +94,26 @@ describe('Rewards System', () => {
       };
       const newAchievements = checkAchievements(user);
       expect(newAchievements.length).toBeGreaterThan(0);
-      expect(newAchievements.map(a => a.id)).toContain('first_scan');
+      expect(newAchievements.map((a) => a.id)).toContain('first_scan');
     });
 
     it('should not award previously earned achievements', () => {
       const user: UserPointsData = {
         totalScanned: 10,
-        achievements: [{ id: 'first_scan', name: 'First Steps', description: '', condition: () => true, points: 50, icon: '' }],
+        achievements: [
+          {
+            id: 'first_scan',
+            name: 'First Steps',
+            description: '',
+            condition: () => true,
+            points: 50,
+            icon: '',
+          },
+        ],
       };
       const newAchievements = checkAchievements(user);
-      expect(newAchievements.map(a => a.id)).not.toContain('first_scan');
-      expect(newAchievements.map(a => a.id)).toContain('ten_scans');
+      expect(newAchievements.map((a) => a.id)).not.toContain('first_scan');
+      expect(newAchievements.map((a) => a.id)).toContain('ten_scans');
     });
 
     it('should award complex achievements like Eco Warrior', () => {
@@ -102,26 +123,38 @@ describe('Rewards System', () => {
         achievements: [],
       };
       const newAchievements = checkAchievements(user);
-      expect(newAchievements.map(a => a.id)).toContain('eco_warrior');
+      expect(newAchievements.map((a) => a.id)).toContain('eco_warrior');
     });
   });
 
   describe('calculateMonthlyBonus', () => {
     it('should return Eco Champion bonus if carbon < 20 and scans >= 10', () => {
-      const result = calculateMonthlyBonus({ monthlyCarbon: 18, totalScanned: 12 });
+      const result = calculateMonthlyBonus({
+        monthlyCarbon: 18,
+        totalScanned: 12,
+      });
       expect(result?.points).toBe(POINT_REWARDS.ECO_CHAMPION_GOAL);
     });
 
     it('should return Monthly Goal bonus if carbon < 30 and scans >= 5', () => {
-      const result = calculateMonthlyBonus({ monthlyCarbon: 25, totalScanned: 6 });
+      const result = calculateMonthlyBonus({
+        monthlyCarbon: 25,
+        totalScanned: 6,
+      });
       expect(result?.points).toBe(POINT_REWARDS.MONTHLY_GOAL);
     });
 
     it('should return null if conditions are not met', () => {
-      const result = calculateMonthlyBonus({ monthlyCarbon: 40, totalScanned: 20 });
+      const result = calculateMonthlyBonus({
+        monthlyCarbon: 40,
+        totalScanned: 20,
+      });
       expect(result).toBeNull();
-      
-      const resultLowScans = calculateMonthlyBonus({ monthlyCarbon: 5, totalScanned: 2 });
+
+      const resultLowScans = calculateMonthlyBonus({
+        monthlyCarbon: 5,
+        totalScanned: 2,
+      });
       expect(resultLowScans).toBeNull();
     });
   });
@@ -157,7 +190,7 @@ describe('Rewards System', () => {
     it('should confirm points if enough time has passed', () => {
       const pastDate = new Date();
       pastDate.setDate(pastDate.getDate() - 8); // 8 days ago
-      
+
       const user: UserPointsData = {
         rewardTransactions: [
           {
@@ -167,8 +200,8 @@ describe('Rewards System', () => {
             reason: 'scan',
             description: 'desc',
             date: pastDate,
-          }
-        ]
+          },
+        ],
       };
 
       const result = confirmPendingPoints(user);
@@ -180,7 +213,7 @@ describe('Rewards System', () => {
     it('should not confirm points if not enough time has passed', () => {
       const recentDate = new Date();
       recentDate.setDate(recentDate.getDate() - 1); // 1 day ago
-      
+
       const user: UserPointsData = {
         rewardTransactions: [
           {
@@ -190,8 +223,8 @@ describe('Rewards System', () => {
             reason: 'scan',
             description: 'desc',
             date: recentDate,
-          }
-        ]
+          },
+        ],
       };
 
       const result = confirmPendingPoints(user);
@@ -207,8 +240,11 @@ describe('Rewards System', () => {
 
     it('should return correct user points summary', () => {
       const upcomingDate = new Date();
-      upcomingDate.setHours(upcomingDate.getHours() - (POINT_CONFIRMATION.CONFIRMATION_DELAY_HOURS - 12)); // Will be confirmed in 12 hours
-      
+      upcomingDate.setHours(
+        upcomingDate.getHours() -
+          (POINT_CONFIRMATION.CONFIRMATION_DELAY_HOURS - 12)
+      ); // Will be confirmed in 12 hours
+
       const user: UserPointsData = {
         confirmedPoints: 500,
         unconfirmedPoints: 200,
@@ -220,8 +256,8 @@ describe('Rewards System', () => {
             reason: 'scan',
             description: 'desc',
             date: upcomingDate,
-          }
-        ]
+          },
+        ],
       };
 
       const summary = getUserPointsSummary(user);
