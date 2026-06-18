@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -38,22 +38,17 @@ export default function BarcodeScanner({
   const videoRef = useRef<HTMLVideoElement>(null);
   const { toast } = useToast();
 
-  const codeReader = new BrowserMultiFormatReader();
+  // Instantiating outside hooks or using a persistent reference prevents recreation errors
+  const codeReaderRef = useRef(new BrowserMultiFormatReader());
 
-  useEffect(() => {
-    startCamera();
-    return () => stopCamera();
-  }, [facingMode]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      simulateScan();
-    }, 3000);
-
-    return () => clearInterval(interval);
+  const stopCamera = useCallback(() => {
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      setStream(null);
+    }
   }, [stream]);
 
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     try {
       const constraints = {
         video: {
@@ -78,14 +73,49 @@ export default function BarcodeScanner({
         variant: 'destructive',
       });
     }
-  };
+  }, [facingMode, toast]);
 
-  const stopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach((track) => track.stop());
-      setStream(null);
+  const handleScan = useCallback((barcode: string) => {
+    onScan(barcode);
+  }, [onScan]);
+
+  const simulateScan = useCallback(async () => {
+    if (videoRef.current) {
+      try {
+        const result = await codeReaderRef.current.decodeOnceFromVideoElement(
+          videoRef.current
+        );
+        if (result && result.getText()) {
+          const barcode = result.getText();
+          handleScan(barcode);
+        }
+      } catch (error) {
+        if (!(error instanceof Error) || error.name !== 'NotFoundException') {
+          toast({
+            title: 'Scanning failed',
+            description:
+              error instanceof Error ? error.message : 'Unknown error',
+            variant: 'destructive',
+          });
+        }
+      }
     }
-  };
+  }, [handleScan, toast]);
+
+  // Hook 1: Handles camera initialization lifecycle
+  useEffect(() => {
+    startCamera();
+    return () => stopCamera();
+  }, [startCamera, stopCamera]);
+
+  // Hook 2: Handles the scanning interval orchestration
+  useEffect(() => {
+    const interval = setInterval(() => {
+      simulateScan();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [stream, simulateScan]);
 
   const toggleFlash = async () => {
     if (stream) {
@@ -111,33 +141,6 @@ export default function BarcodeScanner({
 
   const switchCamera = () => {
     setFacingMode(facingMode === 'user' ? 'environment' : 'user');
-  };
-
-  const handleScan = (barcode: string) => {
-    onScan(barcode);
-  };
-
-  const simulateScan = async () => {
-    if (videoRef.current) {
-      try {
-        const result = await codeReader.decodeOnceFromVideoElement(
-          videoRef.current
-        );
-        if (result && result.getText()) {
-          const barcode = result.getText();
-          handleScan(barcode);
-        }
-      } catch (error) {
-        if (!(error instanceof Error) || error.name !== 'NotFoundException') {
-          toast({
-            title: 'Scanning failed',
-            description:
-              error instanceof Error ? error.message : 'Unknown error',
-            variant: 'destructive',
-          });
-        }
-      }
-    }
   };
 
   const enterBarcodeManually = () => {

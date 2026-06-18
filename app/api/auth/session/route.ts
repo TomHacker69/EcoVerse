@@ -4,6 +4,13 @@ import { verifyToken, signToken } from '@/lib/auth';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
 
+// 1. Define an explicit interface for your JWT Payload to avoid 'any'
+interface JWTPayload {
+  email: string;
+  userId: string;
+  exp?: number;
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
@@ -13,7 +20,8 @@ export async function GET() {
       return NextResponse.json({ error: 'No active session' }, { status: 401 });
     }
 
-    const payload = await verifyToken(token);
+    // 2. Cast the payload verification to our custom or unknown structure safely
+    const payload = (await verifyToken(token)) as JWTPayload | null;
 
     if (!payload || !payload.email) {
       return NextResponse.json({ error: 'Invalid session' }, { status: 401 });
@@ -41,7 +49,8 @@ export async function GET() {
     };
 
     // Sliding Expiration: Check if token has less than 3 days remaining
-    const exp = (payload as any).exp;
+    // 3. Changed from (payload as any).exp to safe structural checking
+    const exp = payload.exp;
     const now = Math.floor(Date.now() / 1000);
     const threeDaysInSeconds = 3 * 24 * 60 * 60;
 
