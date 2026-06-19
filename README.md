@@ -399,7 +399,7 @@ You can obtain
 - MongoDB URI from your [MongoDB Atlas](https://www.mongodb.com/cloud/atlas) cluster
 - [Gemini API](https://aistudio.google.com/app/api-keys)
 
-````env
+```env
 # Firebase
 NEXT_PUBLIC_FIREBASE_API_KEY=
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
@@ -429,6 +429,32 @@ Visit:
 ```text
 http://localhost:3000
 ```
+
+### Docker Deployment
+
+To spin up the application in an isolated container without configuring local Node versions or databases:
+
+1. **Initialize Environment Variables:**
+   Copy the template file to set up your local environment.
+
+   ```text
+   cp .env.example .env
+   ```
+
+   Note: Open the newly created .env file and populate it with your actual Firebase, MongoDB, and Gemini credentials before proceeding.
+
+2. Build and Start the Container:
+
+   ```Bash
+   docker compose up -d --build
+   ```
+
+3. Access the Application:
+   Open your browser and navigate to:
+
+   ```Plaintext
+   http://localhost:3000
+   ```
 
 ---
 
