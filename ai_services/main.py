@@ -1,6 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 # Initialize the API
@@ -20,7 +20,8 @@ class ProductData(BaseModel):
 class ScanItem(BaseModel):
     product_name: str
     category: str
-    carbon_footprint_kg: float
+    # FIX 1: Ensure carbon footprint cannot be negative
+    carbon_footprint_kg: float = Field(ge=0)
     scanned_at: datetime
 
 class AnalyticsRequest(BaseModel):
@@ -55,8 +56,9 @@ async def get_analytics(data: AnalyticsRequest):
     Processes a user's scan history to calculate trends, top emitting categories, 
     and an overall sustainability score.
     """
+    # FIX 2: Return a proper HTTP 422 Error if the array is empty
     if not data.scans:
-        return {"success": False, "message": "No scan data provided for analytics."}
+        raise HTTPException(status_code=422, detail="No scan data provided for analytics.")
 
     # 1. Calculate Top Emitting Category
     category_totals = {}
@@ -71,8 +73,8 @@ async def get_analytics(data: AnalyticsRequest):
     top_category_pct = (category_totals[top_category] / total_emissions) * 100 if total_emissions > 0 else 0
 
     # 2. Month-over-Month (MoM) Trend Calculation
-    # Note: In a real DB we'd filter by exact dates. Here we mock the time splitting.
-    now = datetime.now()
+    # FIX 3: Make datetime.now() timezone-aware (UTC) to prevent crash
+    now = datetime.now(timezone.utc)
     thirty_days_ago = now - timedelta(days=30)
     
     recent_emissions = sum(s.carbon_footprint_kg for s in data.scans if s.scanned_at >= thirty_days_ago)
@@ -81,11 +83,9 @@ async def get_analytics(data: AnalyticsRequest):
     if older_emissions > 0:
         mom_change_pct = ((recent_emissions - older_emissions) / older_emissions) * 100
     else:
-        mom_change_pct = 0.0 # No older data to compare to
+        mom_change_pct = 0.0
 
     # 3. Sustainability Score (1-100)
-    # A simple inverse scoring logic: lower emissions = higher score. 
-    # Assumes a 'good' baseline is roughly 10kg over the period.
     penalty = (total_emissions / 10.0) * 15  
     score = max(1, min(100, 100 - penalty)) 
 
