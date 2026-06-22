@@ -103,9 +103,7 @@ export default function ScanPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           barcode: actualBarcode,
-          feat/scan-streak-system-121-clean
           timezoneOffset: new Date().getTimezoneOffset(),
-        main
         }),
       });
 
