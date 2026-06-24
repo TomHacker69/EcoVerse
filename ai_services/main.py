@@ -99,3 +99,54 @@ async def get_analytics(data: AnalyticsRequest):
         "mom_change_percentage": round(mom_change_pct, 1),
         "trend_direction": "worsening" if mom_change_pct > 0 else "improving"
     }
+
+class UserRecord(BaseModel):
+    user_id: str
+    total_emissions_kg: float = Field(ge=0)
+
+class LeaderboardRequest(BaseModel):
+    requesting_user_id: str
+    users: List[UserRecord]
+
+# --- ENDPOINT 3: Gamification & Leaderboard (Paste at the bottom) ---
+@app.post("/api/leaderboard")
+async def get_leaderboard(data: LeaderboardRequest):
+    """
+    Processes a global array of users to calculate percentiles, averages,
+    and returns the top 10 most sustainable users.
+    """
+    if not data.users:
+        raise HTTPException(status_code=422, detail="No user data provided.")
+
+    # 1. Sort users by emissions (Lowest emissions = Best Rank)
+    sorted_users = sorted(data.users, key=lambda x: x.total_emissions_kg)
+
+    # 2. Calculate Global Average
+    total_global_emissions = sum(u.total_emissions_kg for u in data.users)
+    global_average = total_global_emissions / len(data.users)
+
+    # 3. Find Requesting User's Stats
+    user_rank = next((index for index, u in enumerate(sorted_users) if u.user_id == data.requesting_user_id), None)
+
+    if user_rank is None:
+        raise HTTPException(status_code=404, detail="Requesting user not found in the dataset.")
+
+    # 4. Calculate Percentile (How many people are they beating?)
+    people_beaten = len(data.users) - (user_rank + 1)
+    percentile = (people_beaten / len(data.users)) * 100 if len(data.users) > 1 else 100.0
+
+    # 5. Generate Top 10 List
+    top_10 = [
+        {"rank": i + 1, "user_id": u.user_id, "emissions_kg": u.total_emissions_kg} 
+        for i, u in enumerate(sorted_users[:10])
+    ]
+
+    return {
+        "success": True,
+        "requesting_user_id": data.requesting_user_id,
+        "user_rank": user_rank + 1,
+        "percentile_score": round(percentile, 1),
+        "global_average_kg": round(global_average, 2),
+        "status_message": f"You are more sustainable than {round(percentile)}% of users!",
+        "top_10_leaderboard": top_10
+    }
