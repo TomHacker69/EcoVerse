@@ -93,8 +93,7 @@ export async function POST(req: Request) {
         const user = await User.findOne({ email: userEmail });
 
         // Confirm any aged unconfirmed points before computing the response
-        agedPointsConfirmed =
-          (await confirmAgedPoints(userEmail)) > 0;
+        agedPointsConfirmed = (await confirmAgedPoints(userEmail)) > 0;
 
         if (!user) {
           console.error('❌ No user found with email:', userEmail);
