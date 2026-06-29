@@ -193,7 +193,17 @@ export async function POST(req: Request) {
 
       // --- PENDING POINT CONFIRMATIONS ---
       // Confirm any aged unconfirmed points before computing the response
-      await confirmAgedPoints(userEmail);
+      const agedConfirmations = await confirmAgedPoints(userEmail);
+      if (agedConfirmations > 0) {
+        const refreshedUser = await User.findOne({ email: userEmail });
+        if (!refreshedUser) {
+          return NextResponse.json(
+            { error: 'User account no longer exists' },
+            { status: 404 }
+          );
+        }
+        initialUpdate = refreshedUser;
+      }
 
       // --- POST-UPDATE DERIVED CALCULATIONS ---
       // Achievements are checked first, since their points must be credited
