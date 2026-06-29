@@ -583,7 +583,9 @@ export function shouldConfirmImmediately(reason: string): boolean {
 }
 
 export async function confirmAgedPoints(email: string): Promise<number> {
-  const cutoff = new Date(Date.now() - POINT_CONFIRMATION.CONFIRMATION_DELAY_HOURS * 60 * 60 * 1000);
+  const cutoff = new Date(
+    Date.now() - POINT_CONFIRMATION.CONFIRMATION_DELAY_HOURS * 60 * 60 * 1000
+  );
   const { default: User } = await import('@/models/User');
 
   const user = await User.findOne({ email, unconfirmedPoints: { $gt: 0 } });

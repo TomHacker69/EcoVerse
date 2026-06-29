@@ -299,13 +299,12 @@ export async function POST(req: Request) {
     if (actuallyInsertedAchievements > 0) {
       const freshUser = await User.findOne({ email });
       if (freshUser) {
-        const recomputedLevel = calculateLevel(freshUser.totalPointsEarned || 0);
+        const recomputedLevel = calculateLevel(
+          freshUser.totalPointsEarned || 0
+        );
         finalLevel = recomputedLevel.level;
         if (finalLevel > levelData.level) {
-          await User.updateOne(
-            { email },
-            { $max: { level: finalLevel } }
-          );
+          await User.updateOne({ email }, { $max: { level: finalLevel } });
         }
       }
     }
