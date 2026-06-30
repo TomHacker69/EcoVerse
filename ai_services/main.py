@@ -28,7 +28,6 @@ class AnalyticsRequest(BaseModel):
     scans: List[ScanItem] = Field(min_length=1, max_length=5000)
 
 class UserRecord(BaseModel):
-    # FIX 1A: Ensure user_id cannot be an empty string
     user_id: str = Field(min_length=1)
     total_emissions_kg: float = Field(ge=0)
 
@@ -36,7 +35,6 @@ class LeaderboardRequest(BaseModel):
     requesting_user_id: str = Field(min_length=1)
     users: List[UserRecord] = Field(min_length=1, max_length=5000)
 
-    # FIX 1B: Validate that all user_ids in the array are completely unique
     @field_validator("users")
     @classmethod
     def validate_unique_user_ids(cls, users: List[UserRecord]) -> List[UserRecord]:
@@ -44,6 +42,15 @@ class LeaderboardRequest(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("Duplicate user_id values are not allowed.")
         return users
+
+class UserStatsRequest(BaseModel):
+    user_id: str = Field(min_length=1)
+    total_scans: int = Field(ge=0)
+    mom_change_percentage: float
+    percentile_score: float = Field(ge=0, le=100)
+    # The frontend will now pass an array of immutable 'badge_id' strings
+    previously_earned_badges: List[str] = Field(default_factory=list)
+
 
 # --- ENDPOINT 1: Estimation ---
 @app.post("/api/estimate")
@@ -136,7 +143,6 @@ async def get_leaderboard(data: LeaderboardRequest):
         for i, u in enumerate(sorted_users[:10])
     ]
 
-    # FIX 2: Group the output into "leaderboard" and "stats" objects for the frontend
     return {
         "success": True,
         "leaderboard": top_10,
@@ -147,4 +153,73 @@ async def get_leaderboard(data: LeaderboardRequest):
             "global_average_kg": round(global_average, 2),
             "status_message": f"You are more sustainable than {round(percentile)}% of users!"
         }
+    }
+
+# --- ENDPOINT 4: Achievements & Badges ---
+
+# Single Source of Truth for Badge Metadata
+BADGE_CATALOG = {
+    "first_step": {"name": "First Step", "description": "Scanned your first item."},
+    "eco_beginner": {"name": "Eco Beginner", "description": "Scanned 10 items."},
+    "carbon_cutter": {"name": "Carbon Cutter", "description": "Reduced emissions by 15% MoM."},
+    "global_guardian": {"name": "Global Guardian", "description": "Reached the Top 10% globally."}
+}
+
+@app.post("/api/achievements")
+async def get_achievements(stats: UserStatsRequest):
+    """
+    Evaluates stats to award badges using immutable badge_ids.
+    Ensures previously earned badges are retained even if stats regress.
+    """
+    previously_earned = []
+    newly_earned = []
+    next_goals = []
+
+    earned_ids = set(stats.previously_earned_badges)
+
+    # 1. Unconditionally build the 'previously_earned' list from history
+    for b_id in earned_ids:
+        if b_id in BADGE_CATALOG:
+            previously_earned.append({
+                "badge_id": b_id,
+                "name": BADGE_CATALOG[b_id]["name"],
+                "description": BADGE_CATALOG[b_id]["description"]
+            })
+
+    # 2. Evaluate Rule 1: First Step
+    if "first_step" not in earned_ids:
+        if stats.total_scans >= 1:
+            newly_earned.append({"badge_id": "first_step", **BADGE_CATALOG["first_step"]})
+        else:
+            next_goals.append({"badge_id": "first_step", "name": BADGE_CATALOG["first_step"]["name"], "progress": f"{stats.total_scans}/1 items"})
+
+    # 3. Evaluate Rule 2: Eco Beginner
+    if "eco_beginner" not in earned_ids:
+        if stats.total_scans >= 10:
+            newly_earned.append({"badge_id": "eco_beginner", **BADGE_CATALOG["eco_beginner"]})
+        else:
+            next_goals.append({"badge_id": "eco_beginner", "name": BADGE_CATALOG["eco_beginner"]["name"], "progress": f"{stats.total_scans}/10 items"})
+
+    # 4. Evaluate Rule 3: Carbon Cutter
+    if "carbon_cutter" not in earned_ids:
+        if stats.mom_change_percentage <= -15.0:
+            newly_earned.append({"badge_id": "carbon_cutter", **BADGE_CATALOG["carbon_cutter"]})
+        else:
+            next_goals.append({"badge_id": "carbon_cutter", "name": BADGE_CATALOG["carbon_cutter"]["name"], "progress": f"Current: {stats.mom_change_percentage}% (Target: -15.0%)"})
+
+    # 5. Evaluate Rule 4: Global Guardian
+    if "global_guardian" not in earned_ids:
+        if stats.percentile_score >= 90.0:
+            newly_earned.append({"badge_id": "global_guardian", **BADGE_CATALOG["global_guardian"]})
+        else:
+            current_top = round(100 - stats.percentile_score, 1)
+            next_goals.append({"badge_id": "global_guardian", "name": BADGE_CATALOG["global_guardian"]["name"], "progress": f"Current: Top {current_top}% (Target: Top 10%)"})
+
+    return {
+        "success": True,
+        "user_id": stats.user_id,
+        "total_new_badges": len(newly_earned),
+        "newly_earned_badges": newly_earned,
+        "previously_earned_badges": previously_earned,
+        "next_goals": next_goals
     }
