@@ -1,12 +1,20 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
+import crypto from 'crypto';
 
-const secretKey =
-  process.env.JWT_SECRET || 'fallback_secret_for_development_only';
+const secretKey = process.env.JWT_SECRET;
+if (!secretKey) {
+  throw new Error(
+    'JWT_SECRET environment variable is required. ' +
+    'Generate one with: openssl rand -base64 32'
+  );
+}
 const key = new TextEncoder().encode(secretKey);
 
+const FALLBACK_SECRET = 'fallback_secret_for_development_only';
+
 export async function signToken(payload: { email: string; userId?: string }) {
-  return await new SignJWT(payload)
+  return await new SignJWT({ ...payload, jti: crypto.randomUUID() })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('7d')
@@ -15,12 +23,23 @@ export async function signToken(payload: { email: string; userId?: string }) {
 
 export async function verifyToken(token: string) {
   try {
+    try {
+      const fallbackKey = new TextEncoder().encode(FALLBACK_SECRET);
+      await jwtVerify(token, fallbackKey, { algorithms: ['HS256'] });
+      console.warn(
+        '[SECURITY] Rejected token signed with known weak fallback secret'
+      );
+      return null;
+    } catch {
+      // Not signed with the old fallback secret
+    }
+
     const { payload } = await jwtVerify(token, key, {
       algorithms: ['HS256'],
     });
-    return payload as { email: string; userId?: string };
-  } catch (error) {
-    return null; // Invalid or expired token
+    return payload as { email: string; userId?: string; jti?: string };
+  } catch {
+    return null;
   }
 }
 
