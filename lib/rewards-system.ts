@@ -1,5 +1,12 @@
 // Rewards System Configuration and Logic
 
+import type {
+  IScan,
+  IAchievement,
+  IPurchasedItem,
+  IRewardTransaction,
+} from '@/models/User';
+
 export interface Achievement {
   id: string;
   name: string;
@@ -29,7 +36,7 @@ export interface RewardShopItem {
   category: 'badge' | 'feature' | 'cosmetic';
   available: boolean;
 }
-
+feat/scan-streak-system-121-clean
 // RewardUser: used by streak tests and rewards API — requires non-optional fields
 // so callers can pass a plain object without worrying about nullish checks.
 // NEW: Proper TypeScript interface to replace 'any' and 'unknown'
@@ -46,23 +53,35 @@ export interface RewardUser {
     barcode: string;
     date: Date;
   }[];
+// Minimal shape of a user document that the rewards-system functions need.
+// Fields are optional and reuse the real Mongoose interfaces from
+// models/User.ts (rather than redeclaring the shape inline) so this type
+// can't drift out of sync with the actual schema, and so callers — including
+// tests — can construct partial user objects without supplying every field.
+export interface RewardUser {
+  totalScanned?: number;
+  streakCount?: number;
+  monthlyCarbon?: number;
+  level?: number;
+  main
   totalPointsEarned?: number;
-  achievements?: {
-    id: string;
-    name: string;
-    description: string;
-    earnedAt: Date;
-    points: number;
-  }[];
-  rewardTransactions?: RewardTransaction[];
   confirmedPoints?: number;
   unconfirmedPoints?: number;
+  scans?: IScan[];
+  achievements?: IAchievement[];
+  purchasedItems?: IPurchasedItem[];
+  rewardTransactions?: IRewardTransaction[];
 }
 
+feat/scan-streak-system-121-clean
 // User Points Data interface
 export interface UserPointsData extends RewardUser {
   // Additional fields specific to user points tracking
 }
+// Alias kept for backwards compatibility with code/tests written against
+// the earlier name for this type.
+export type UserPointsData = RewardUser;
+main
 
 // Point confirmation system configuration
 export const POINT_CONFIRMATION = {
@@ -173,7 +192,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'first_scan',
     name: 'First Steps',
     description: 'Scan your first product',
-    condition: (user) => user.totalScanned >= 1,
+    condition: (user) => (user.totalScanned ?? 0) >= 1,
     points: 50,
     icon: '🎯',
   },
@@ -181,7 +200,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'ten_scans',
     name: 'Getting Started',
     description: 'Scan 10 products',
-    condition: (user) => user.totalScanned >= 10,
+    condition: (user) => (user.totalScanned ?? 0) >= 10,
     points: 100,
     icon: '📱',
   },
@@ -189,7 +208,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'fifty_scans',
     name: 'Scanner Pro',
     description: 'Scan 50 products',
-    condition: (user) => user.totalScanned >= 50,
+    condition: (user) => (user.totalScanned ?? 0) >= 50,
     points: 250,
     icon: '🏆',
   },
@@ -197,7 +216,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'hundred_scans',
     name: 'Scan Master',
     description: 'Scan 100 products',
-    condition: (user) => user.totalScanned >= 100,
+    condition: (user) => (user.totalScanned ?? 0) >= 100,
     points: 500,
     icon: '👑',
   },
@@ -205,7 +224,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'five_hundred_scans',
     name: 'Scan Legend',
     description: 'Scan 500 products',
-    condition: (user) => user.totalScanned >= 500,
+    condition: (user) => (user.totalScanned ?? 0) >= 500,
     points: 1500,
     icon: '🌟',
   },
@@ -213,7 +232,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'week_streak',
     name: 'Week Warrior',
     description: 'Maintain a 7-day scanning streak',
-    condition: (user) => user.streakCount >= 7,
+    condition: (user) => (user.streakCount ?? 0) >= 7,
     points: 150,
     icon: '🔥',
   },
@@ -221,7 +240,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'month_streak',
     name: 'Consistency King',
     description: 'Maintain a 30-day scanning streak',
-    condition: (user) => user.streakCount >= 30,
+    condition: (user) => (user.streakCount ?? 0) >= 30,
     points: 1000,
     icon: '👑',
   },
@@ -229,7 +248,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'hundred_day_streak',
     name: 'Streak Master',
     description: 'Maintain a 100-day scanning streak',
-    condition: (user) => user.streakCount >= 100,
+    condition: (user) => (user.streakCount ?? 0) >= 100,
     points: 3000,
     icon: '💎',
   },
@@ -237,7 +256,8 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'eco_warrior',
     name: 'Eco Warrior',
     description: 'Keep monthly carbon footprint under 20kg',
-    condition: (user) => user.monthlyCarbon < 20 && user.totalScanned >= 10,
+    condition: (user) =>
+      (user.monthlyCarbon ?? 0) < 20 && (user.totalScanned ?? 0) >= 10,
     points: 300,
     icon: '🌱',
   },
@@ -245,7 +265,8 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'carbon_conscious',
     name: 'Carbon Conscious',
     description: 'Keep monthly carbon footprint under 30kg',
-    condition: (user) => user.monthlyCarbon < 30 && user.totalScanned >= 5,
+    condition: (user) =>
+      (user.monthlyCarbon ?? 0) < 30 && (user.totalScanned ?? 0) >= 5,
     points: 150,
     icon: '🌿',
   },
@@ -253,7 +274,8 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'zero_waste_hero',
     name: 'Zero Waste Hero',
     description: 'Keep monthly carbon footprint under 10kg',
-    condition: (user) => user.monthlyCarbon < 10 && user.totalScanned >= 15,
+    condition: (user) =>
+      (user.monthlyCarbon ?? 0) < 10 && (user.totalScanned ?? 0) >= 15,
     points: 500,
     icon: '🌍',
   },
@@ -274,7 +296,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'level_5',
     name: 'Rising Star',
     description: 'Reach Level 5',
-    condition: (user) => user.level >= 5,
+    condition: (user) => (user.level ?? 0) >= 5,
     points: 500,
     icon: '⭐',
   },
@@ -282,7 +304,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'level_10',
     name: 'Sustainability Champion',
     description: 'Reach Level 10',
-    condition: (user) => user.level >= 10,
+    condition: (user) => (user.level ?? 0) >= 10,
     points: 1000,
     icon: '🏅',
   },
@@ -290,7 +312,7 @@ export const ACHIEVEMENTS: Achievement[] = [
     id: 'level_15',
     name: 'Eco Legend',
     description: 'Reach the maximum Level 15',
-    condition: (user) => user.level >= 15,
+    condition: (user) => (user.level ?? 0) >= 15,
     points: 2500,
     icon: '🌟',
   },
@@ -314,9 +336,99 @@ export const ACHIEVEMENTS: Achievement[] = [
   },
 ];
 
+feat/scan-streak-system-121-clean
 // Calculate points for a scan.
 // isFirstScanOfDay (default true) gates daily/streak bonuses — prevents
 // unlimited point farming when a user scans multiple products in one day.
+// Calculates the next streak state for a scan happening "now", given the
+// user's last scan date and current streak. Pure function — no DB access —
+// so the route layer can compute the values to persist atomically.
+//
+// Rules:
+// - Same calendar day as the last scan: streak unchanged (no double-counting
+//   multiple scans in one day).
+// - Exactly one calendar day after the last scan: streak continues, +1.
+// - More than one day gap: if the user has a streak protector available, it
+//   is consumed to bridge the gap and the streak continues, +1. Otherwise
+//   the streak resets to 1 (today's scan starts a new streak).
+// - No previous scan at all: streak starts at 1.
+//
+// Uses UTC, not the server's local timezone, to compute calendar-day
+// boundaries, so the streak cutoff doesn't shift depending on what TZ the
+// server process happens to run under.
+export function calculateStreakUpdate(
+  lastScanDate: Date | null,
+  currentStreak: number,
+  bestStreak: number,
+  streakProtectors: number,
+  now: Date = new Date()
+): {
+  streakCount: number;
+  bestStreakCount: number;
+  streakProtectorsUsed: number;
+  streakBroken: boolean;
+} {
+  const startOfDay = (d: Date) =>
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+
+  const today = startOfDay(now);
+
+  if (!lastScanDate) {
+    return {
+      streakCount: 1,
+      bestStreakCount: Math.max(bestStreak, 1),
+      streakProtectorsUsed: 0,
+      streakBroken: false,
+    };
+  }
+
+  const lastDay = startOfDay(lastScanDate);
+  const dayGap = Math.round((today - lastDay) / (1000 * 60 * 60 * 24));
+
+  if (dayGap === 0) {
+    // Already scanned today — streak unchanged.
+    return {
+      streakCount: currentStreak,
+      bestStreakCount: bestStreak,
+      streakProtectorsUsed: 0,
+      streakBroken: false,
+    };
+  }
+
+  if (dayGap === 1) {
+    const newStreak = currentStreak + 1;
+    return {
+      streakCount: newStreak,
+      bestStreakCount: Math.max(bestStreak, newStreak),
+      streakProtectorsUsed: 0,
+      streakBroken: false,
+    };
+  }
+
+  // Gap of more than one day: try to bridge it with a streak protector.
+  // One protector covers exactly one missed day, regardless of gap size,
+  // matching the shop item's description ("protect your streak for one
+  // missed day").
+  if (dayGap === 2 && streakProtectors > 0) {
+    const newStreak = currentStreak + 1;
+    return {
+      streakCount: newStreak,
+      bestStreakCount: Math.max(bestStreak, newStreak),
+      streakProtectorsUsed: 1,
+      streakBroken: false,
+    };
+  }
+
+  // Streak broken — today's scan starts a fresh streak.
+  return {
+    streakCount: 1,
+    bestStreakCount: Math.max(bestStreak, 1),
+    streakProtectorsUsed: 0,
+    streakBroken: currentStreak > 0,
+  };
+}
+
+main
 export function calculateScanPoints(
   carbonEstimate: number,
   isFirstScan: boolean,
@@ -425,12 +537,12 @@ export function checkAchievements(user: RewardUser): Achievement[] {
 export function calculateMonthlyBonus(
   user: RewardUser
 ): { points: number; reason: string } | null {
-  if (user.monthlyCarbon < 20 && user.totalScanned >= 10) {
+  if ((user.monthlyCarbon ?? 0) < 20 && (user.totalScanned ?? 0) >= 10) {
     return {
       points: POINT_REWARDS.ECO_CHAMPION_GOAL,
       reason: 'Eco Champion - Monthly carbon under 20kg',
     };
-  } else if (user.monthlyCarbon < 30 && user.totalScanned >= 5) {
+  } else if ((user.monthlyCarbon ?? 0) < 30 && (user.totalScanned ?? 0) >= 5) {
     return {
       points: POINT_REWARDS.MONTHLY_GOAL,
       reason: 'Monthly Goal - Carbon under 30kg',
@@ -482,10 +594,10 @@ export function getSustainabilityTier(
 // Confirm pending points that meet the confirmation threshold
 export function confirmPendingPoints(user: UserPointsData): {
   confirmedPoints: number;
-  confirmedTransactions: RewardTransaction[];
+  confirmedTransactions: IRewardTransaction[];
 } {
   let confirmedPoints = 0;
-  const confirmedTransactions: RewardTransaction[] = [];
+  const confirmedTransactions: IRewardTransaction[] = [];
   const now = new Date();
 
   if (user.rewardTransactions) {
@@ -515,6 +627,49 @@ export function confirmPendingPoints(user: UserPointsData): {
 
 export function shouldConfirmImmediately(reason: string): boolean {
   return POINT_CONFIRMATION.IMMEDIATE_CONFIRMATION.includes(reason);
+}
+
+export async function confirmAgedPoints(email: string): Promise<number> {
+  const cutoff = new Date(
+    Date.now() - POINT_CONFIRMATION.CONFIRMATION_DELAY_HOURS * 60 * 60 * 1000
+  );
+  const { default: User } = await import('@/models/User');
+
+  const user = await User.findOne({ email, unconfirmedPoints: { $gt: 0 } });
+  if (!user) return 0;
+
+  const agedPoints = (user.rewardTransactions || [])
+    .filter(
+      (t: IRewardTransaction) =>
+        t.pointsType === 'unconfirmed' &&
+        t.type === 'earned' &&
+        t.date <= cutoff
+    )
+    .reduce((sum: number, t: IRewardTransaction) => sum + (t.points || 0), 0);
+
+  if (agedPoints === 0) return 0;
+
+  await User.updateOne(
+    { email },
+    {
+      $inc: { confirmedPoints: agedPoints, unconfirmedPoints: -agedPoints },
+      $set: {
+        'rewardTransactions.$[eligible].pointsType': 'confirmed',
+        'rewardTransactions.$[eligible].confirmedAt': new Date(),
+      },
+    },
+    {
+      arrayFilters: [
+        {
+          'eligible.pointsType': 'unconfirmed',
+          'eligible.type': 'earned',
+          'eligible.date': { $lte: cutoff },
+        },
+      ],
+    }
+  );
+
+  return agedPoints;
 }
 
 export function getUserPointsSummary(user: RewardUser): {

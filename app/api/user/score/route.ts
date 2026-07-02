@@ -7,6 +7,8 @@ import {
   getSustainabilityTier,
   calculateScanPoints,
   checkAchievements,
+  confirmAgedPoints,
+  shouldConfirmImmediately,
 } from '@/lib/rewards-system';
 
 export async function GET(req: Request) {
@@ -45,6 +47,10 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       monthlyCarbon,
+      // Falls back to the app's existing default (40kg) when the user
+      // hasn't set a personal goal yet, so this is backward-compatible
+      // with the previously-hardcoded constant on the frontend.
+      monthlyCarbonGoal: user.monthlyCarbonGoal ?? 40,
       totalScanned: user.totalScanned || 0,
       streakCount: user.streakCount || 0,
       bestStreakCount: user.bestStreakCount || 0,
@@ -200,6 +206,19 @@ export async function POST(req: Request) {
 
     const oldLevel = user.level || 1;
 
+    // Confirm any aged unconfirmed points before recording new scan
+    await confirmAgedPoints(email);
+
+    // Transform Achievement[] to IAchievement[] before persisting
+    const earnedAt = new Date();
+    const achievementRecords = earnedAchievements.map((achievement) => ({
+      id: achievement.id,
+      name: achievement.name,
+      description: achievement.description,
+      points: achievement.points,
+      earnedAt,
+    }));
+
     // Single atomic update to user stats and history
     const finalUpdate = await User.findOneAndUpdate(
       { email },
@@ -216,6 +235,8 @@ export async function POST(req: Request) {
           streakCount: newStreakCount,
           bestStreakCount: newBestStreak,
           lastScanDate: now,
+        },
+        $max: {
           level: levelData.level,
         },
         $push: {
@@ -236,11 +257,6 @@ export async function POST(req: Request) {
             description: `Manual entry: ${productName}`,
             date: new Date(),
           },
-          ...(earnedAchievements.length > 0 && {
-            achievements: {
-              $each: earnedAchievements,
-            },
-          }),
         },
       },
       {
@@ -256,18 +272,121 @@ export async function POST(req: Request) {
       );
     }
 
+    // Insert achievements with deduplication
+    const isAchievementConfirmed = shouldConfirmImmediately('achievement');
+    let actuallyInsertedAchievements = 0;
+    for (const record of achievementRecords) {
+      const inserted = await User.findOneAndUpdate(
+        { email, 'achievements.id': { $ne: record.id } },
+        {
+          $push: { achievements: record },
+          $inc: {
+            rewardPoints: record.points,
+            totalPointsEarned: record.points,
+            confirmedPoints: isAchievementConfirmed ? record.points : 0,
+            unconfirmedPoints: isAchievementConfirmed ? 0 : record.points,
+          },
+        },
+        { new: false }
+      );
+      if (inserted) {
+        actuallyInsertedAchievements++;
+      }
+    }
+
+    // Recompute level if achievements were inserted
+    let finalLevel = levelData.level;
+    if (actuallyInsertedAchievements > 0) {
+      const freshUser = await User.findOne({ email });
+      if (freshUser) {
+        const recomputedLevel = calculateLevel(
+          freshUser.totalPointsEarned || 0
+        );
+        finalLevel = recomputedLevel.level;
+        if (finalLevel > levelData.level) {
+          await User.updateOne({ email }, { $max: { level: finalLevel } });
+        }
+      }
+    }
+
     return NextResponse.json({
       newScore: finalUpdate.monthlyCarbon,
       totalScanned: finalUpdate.totalScanned,
       pointsEarned,
-      level: finalUpdate.level,
-      leveledUp: finalUpdate.level > oldLevel,
+      level: finalLevel,
+      leveledUp: finalLevel > oldLevel,
     });
   } catch (error) {
     console.error('Error updating score:', error);
 
     return NextResponse.json(
       { error: 'Failed to update score' },
+      { status: 500 }
+    );
+  }
+}
+
+// PATCH /api/user/score - Set or clear the user's personal monthly carbon goal
+export async function PATCH(req: Request) {
+  const email = req.headers.get('x-user-email');
+
+  if (!email) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  try {
+    const payload: unknown = await req.json();
+
+    if (typeof payload !== 'object' || payload === null) {
+      return NextResponse.json(
+        { error: 'Invalid JSON payload' },
+        { status: 400 }
+      );
+    }
+
+    const { monthlyCarbonGoal } = payload as { monthlyCarbonGoal?: unknown };
+
+    // Allow null explicitly, to let a user clear their goal and revert to
+    // the app default (40kg) rather than forcing them to always have one.
+    if (monthlyCarbonGoal !== null) {
+      const goalValue = Number(monthlyCarbonGoal);
+
+      if (
+        typeof monthlyCarbonGoal !== 'number' ||
+        !Number.isFinite(goalValue) ||
+        goalValue <= 0 ||
+        goalValue > 10000
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'monthlyCarbonGoal must be a positive number (kg CO2), or null to clear it',
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    await dbConnect();
+
+    const updatedUser = await User.findOneAndUpdate(
+      { email },
+      { $set: { monthlyCarbonGoal } },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedUser) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      monthlyCarbonGoal: updatedUser.monthlyCarbonGoal ?? 40,
+    });
+  } catch (error) {
+    console.error('Error updating monthly carbon goal:', error);
+
+    return NextResponse.json(
+      { error: 'Failed to update monthly carbon goal' },
       { status: 500 }
     );
   }

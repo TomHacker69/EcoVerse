@@ -5,6 +5,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useRef,
   type ReactNode,
 } from 'react';
 import {
@@ -37,7 +38,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<boolean>;
   logout: () => Promise<void>;
   updateUserStats: (carbonAdded: number) => void;
-  updateAvatar: (avatarId: AvatarId) => void;
+  updateAvatar: (avatarId: AvatarId) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -50,6 +51,11 @@ export function useAuth() {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  // Guards against overlapping avatar save requests (e.g. a double-click,
+  // or clicking a second avatar before the first save resolves). Without
+  // this, an older request that fails after a newer one already succeeded
+  // could roll back state the newer request just confirmed server-side.
+  const avatarUpdateInFlightRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchSession = async () => {
@@ -238,28 +244,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const updateAvatar = async (avatarId: AvatarId) => {
-    if (user) {
-      const previousUser = { ...user };
+  const updateAvatar = async (avatarId: AvatarId): Promise<boolean> => {
+    if (!user) {
+      toast({
+        title: 'Avatar not saved',
+        description: 'Please sign in and try again.',
+        variant: 'destructive',
+      });
+      return false;
+    }
 
-      setUser({
-        ...user,
-        avatarId,
+    // If another avatar save is already in flight, don't start a second
+    // optimistic update — that's what allows an older request's eventual
+    // failure to roll back state a newer request already confirmed.
+    if (avatarUpdateInFlightRef.current) {
+      toast({
+        title: 'Save in progress',
+        description: 'Please wait for the current avatar to finish saving.',
+      });
+      return false;
+    }
+    avatarUpdateInFlightRef.current = true;
+
+    const previousAvatarId = user.avatarId;
+
+    setUser((current) => (current ? { ...current, avatarId } : current));
+
+    try {
+      const res = await fetch('/api/user/avatar', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ avatarId }),
       });
 
-      try {
-        const res = await fetch('/api/user/avatar', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: user.email, avatarId }),
-        });
-
-        if (!res.ok) throw new Error('Failed to update on server');
-      } catch (err) {
-        console.error('Failed to update avatar on server:', err);
-        // Rollback optimistic UI
-        setUser(previousUser);
-      }
+      if (!res.ok) throw new Error('Failed to update on server');
+      return true;
+    } catch (err) {
+      console.error('Failed to update avatar on server:', err);
+      // Roll back only the avatarId field, and only if this optimistic
+      // update is still the most recent state change — otherwise a
+      // concurrent logout() or other update could be clobbered by
+      // restoring a stale snapshot of the whole user object.
+      setUser((current) =>
+        current && current.avatarId === avatarId
+          ? { ...current, avatarId: previousAvatarId }
+          : current
+      );
+      toast({
+        title: 'Avatar not saved',
+        description: 'Something went wrong. Please try again.',
+        variant: 'destructive',
+      });
+      return false;
+    } finally {
+      avatarUpdateInFlightRef.current = false;
     }
   };
 

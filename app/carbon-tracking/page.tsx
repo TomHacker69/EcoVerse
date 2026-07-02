@@ -13,10 +13,14 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Calendar, TrendingDown, Target, Award } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Calendar, TrendingDown, Target, Award, Pencil } from 'lucide-react';
+import { toast } from '@/components/ui/use-toast';
 
 interface UserData {
   monthlyCarbon: number;
+  monthlyCarbonGoal: number;
   totalScanned: number;
   streakCount: number;
   bestStreakCount: number;
@@ -33,6 +37,9 @@ interface UserData {
 export default function CarbonTrackingPage() {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isEditingGoal, setIsEditingGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
+  const [savingGoal, setSavingGoal] = useState(false);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -55,6 +62,59 @@ export default function CarbonTrackingPage() {
     fetchUserData();
   }, [user?.email]);
 
+  const persistGoal = async (value: number | null) => {
+    setSavingGoal(true);
+    try {
+      const res = await fetch('/api/user/score', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monthlyCarbonGoal: value }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setUserData((prev) =>
+          prev ? { ...prev, monthlyCarbonGoal: data.monthlyCarbonGoal } : prev
+        );
+        setIsEditingGoal(false);
+      } else {
+        toast({
+          title: 'Could not save goal',
+          description: 'Something went wrong. Please try again.',
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Error saving monthly carbon goal:', error);
+      toast({
+        title: 'Could not save goal',
+        description: 'Something went wrong. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSavingGoal(false);
+    }
+  };
+
+  const handleSaveGoal = async () => {
+    const parsed = Number(goalInput);
+
+    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 10000) {
+      toast({
+        title: 'Invalid goal',
+        description: 'Enter a number greater than 0 and at most 10,000 kg.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    await persistGoal(parsed);
+  };
+
+  const handleResetGoal = async () => {
+    await persistGoal(null);
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -73,7 +133,7 @@ export default function CarbonTrackingPage() {
     );
   }
 
-  const monthlyGoal = 40;
+  const monthlyGoal = userData.monthlyCarbonGoal ?? 40;
   const progressPercentage = (userData.monthlyCarbon / monthlyGoal) * 100;
   const dailyAverage =
     userData.scans.length > 0
@@ -172,12 +232,70 @@ export default function CarbonTrackingPage() {
         {/* Monthly Goal Progress */}
         <Card className="bg-indigo-100 border-none shadow-md">
           <CardHeader>
-            <CardTitle className="text-indigo-900">
-              Monthly Goal Progress
-            </CardTitle>
-            <CardDescription className="text-gray-600">
-              Track your progress towards your {monthlyGoal}kg CO₂ monthly goal
-            </CardDescription>
+            <div className="flex items-start justify-between">
+              <div>
+                <CardTitle className="text-indigo-900">
+                  Monthly Goal Progress
+                </CardTitle>
+                <CardDescription className="text-gray-600">
+                  Track your progress towards your {monthlyGoal}kg CO₂ monthly
+                  goal
+                </CardDescription>
+              </div>
+              {!isEditingGoal && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-indigo-700"
+                  onClick={() => {
+                    setGoalInput(String(monthlyGoal));
+                    setIsEditingGoal(true);
+                  }}
+                >
+                  <Pencil className="h-4 w-4 mr-1" />
+                  Edit goal
+                </Button>
+              )}
+            </div>
+            {isEditingGoal && (
+              <div className="flex items-center gap-2 mt-2">
+                <Input
+                  type="number"
+                  min={1}
+                  max={10000}
+                  step="0.1"
+                  aria-label="Monthly carbon goal in kg CO₂"
+                  value={goalInput}
+                  onChange={(e) => setGoalInput(e.target.value)}
+                  className="w-32"
+                  disabled={savingGoal}
+                />
+                <span className="text-sm text-gray-600">kg CO₂ / month</span>
+                <Button
+                  size="sm"
+                  onClick={handleSaveGoal}
+                  disabled={savingGoal}
+                >
+                  Save
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleResetGoal}
+                  disabled={savingGoal}
+                >
+                  Reset to default
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsEditingGoal(false)}
+                  disabled={savingGoal}
+                >
+                  Cancel
+                </Button>
+              </div>
+            )}
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
