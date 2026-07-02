@@ -26,11 +26,12 @@ This implementation is built to resolve 10 logic and design flaws identified in 
 
 ## Changes
 
-### `lib/streak-system.ts` *(New file)*
+### `lib/streak-system.ts` _(New file)_
 
 Core streak processing utility with a single pure function `processStreak(user, currentScanDate, timezoneOffsetMinutes)`.
 
 **Handles all branches:**
+
 - First-ever scan (`lastScanDate === null`) → starts streak at 1
 - Same-day scan (`diffDays <= 0`) → no change, `lastScanDate` preserved (returns `null`)
 - Consecutive day (`diffDays === 1`) → increments streak
@@ -69,7 +70,7 @@ Core streak processing utility with a single pure function `processStreak(user, 
 
 - `UserStats` interface extended with `streakProtectors?: number`
 - `streakProtectors` is populated from `/api/rewards` → `specialFeatures.streakProtectors`
-- Streak badge now shows **progress to next milestone** (e.g. *3 days to next milestone*)
+- Streak badge now shows **progress to next milestone** (e.g. _3 days to next milestone_)
 - New **🛡️ N Shields Active** badge displayed when user has active protectors
 
 ---
@@ -87,20 +88,20 @@ Core streak processing utility with a single pure function `processStreak(user, 
 
 ---
 
-### `lib/__tests__/streak-system.test.ts` *(New file)*
+### `lib/__tests__/streak-system.test.ts` _(New file)_
 
 **16 unit tests** covering every branch of `processStreak`:
 
-| Suite | Tests |
-|---|---|
-| First-ever scan | Streak starts at 1 |
-| Same-day scan | No change, `null` returned for lastScanDate |
-| Consecutive day | Streak increments, bestStreak updates |
-| Missed days + enough protectors | 1 protector, 2 protectors |
-| Missed days + not enough protectors | Reset to 1, bestStreak preserved |
-| Clock drift / negative diffDays | Treated as same-day |
-| Milestone detection | 7, 30, 100, non-milestone, lost streak |
-| Exact boundary | `protectors === missedDays` saves; `protectors = missedDays - 1` breaks |
+| Suite                               | Tests                                                                   |
+| ----------------------------------- | ----------------------------------------------------------------------- |
+| First-ever scan                     | Streak starts at 1                                                      |
+| Same-day scan                       | No change, `null` returned for lastScanDate                             |
+| Consecutive day                     | Streak increments, bestStreak updates                                   |
+| Missed days + enough protectors     | 1 protector, 2 protectors                                               |
+| Missed days + not enough protectors | Reset to 1, bestStreak preserved                                        |
+| Clock drift / negative diffDays     | Treated as same-day                                                     |
+| Milestone detection                 | 7, 30, 100, non-milestone, lost streak                                  |
+| Exact boundary                      | `protectors === missedDays` saves; `protectors = missedDays - 1` breaks |
 
 ---
 

@@ -36,7 +36,11 @@ describe('processStreak', () => {
   // ── Same-day scan ──────────────────────────────────────────────────────────
   describe('same-day scan (diffDays === 0)', () => {
     it('should not change streak and not update lastScanDate', () => {
-      const user = makeUser({ lastScanDate: new Date('2024-06-15T08:00:00Z'), streakCount: 5, bestStreakCount: 5 });
+      const user = makeUser({
+        lastScanDate: new Date('2024-06-15T08:00:00Z'),
+        streakCount: 5,
+        bestStreakCount: 5,
+      });
       const result = processStreak(user, now, tz);
       expect(result.streakCount).toBe(5);
       expect(result.isFirstScanOfDay).toBe(false);
@@ -48,7 +52,11 @@ describe('processStreak', () => {
   // ── Consecutive day ────────────────────────────────────────────────────────
   describe('consecutive day scan (diffDays === 1)', () => {
     it('should increment streak by 1', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 1), streakCount: 4, bestStreakCount: 4 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 1),
+        streakCount: 4,
+        bestStreakCount: 4,
+      });
       const result = processStreak(user, now, tz);
       expect(result.streakCount).toBe(5);
       expect(result.bestStreakCount).toBe(5);
@@ -57,7 +65,11 @@ describe('processStreak', () => {
     });
 
     it('should update bestStreakCount when new streak exceeds it', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 1), streakCount: 10, bestStreakCount: 8 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 1),
+        streakCount: 10,
+        bestStreakCount: 8,
+      });
       const result = processStreak(user, now, tz);
       expect(result.streakCount).toBe(11);
       expect(result.bestStreakCount).toBe(11);
@@ -67,7 +79,12 @@ describe('processStreak', () => {
   // ── Missed days with enough protectors ────────────────────────────────────
   describe('missed days (diffDays > 1) with enough streak protectors', () => {
     it('should save the streak using 1 protector when 1 day is missed', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 2), streakCount: 6, bestStreakCount: 6, streakProtectors: 1 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 2),
+        streakCount: 6,
+        bestStreakCount: 6,
+        streakProtectors: 1,
+      });
       const result = processStreak(user, now, tz);
       expect(result.streakCount).toBe(7);
       expect(result.protectorsUsed).toBe(1);
@@ -76,7 +93,12 @@ describe('processStreak', () => {
     });
 
     it('should save the streak using 2 protectors when 2 days are missed', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 3), streakCount: 5, bestStreakCount: 5, streakProtectors: 3 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 3),
+        streakCount: 5,
+        bestStreakCount: 5,
+        streakProtectors: 3,
+      });
       const result = processStreak(user, now, tz);
       expect(result.streakCount).toBe(6);
       expect(result.protectorsUsed).toBe(2);
@@ -87,7 +109,12 @@ describe('processStreak', () => {
   // ── Missed days without enough protectors ─────────────────────────────────
   describe('missed days (diffDays > 1) without enough streak protectors', () => {
     it('should reset streak to 1 and consume 0 protectors', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 3), streakCount: 15, bestStreakCount: 15, streakProtectors: 1 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 3),
+        streakCount: 15,
+        bestStreakCount: 15,
+        streakProtectors: 1,
+      });
       const result = processStreak(user, now, tz);
       expect(result.streakCount).toBe(1);
       expect(result.protectorsUsed).toBe(0);
@@ -96,7 +123,12 @@ describe('processStreak', () => {
     });
 
     it('should preserve bestStreakCount even after losing a streak', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 5), streakCount: 20, bestStreakCount: 20, streakProtectors: 0 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 5),
+        streakCount: 20,
+        bestStreakCount: 20,
+        streakProtectors: 0,
+      });
       const result = processStreak(user, now, tz);
       expect(result.streakCount).toBe(1);
       expect(result.bestStreakCount).toBe(20);
@@ -107,7 +139,11 @@ describe('processStreak', () => {
   describe('clock drift or spoofing (diffDays < 0)', () => {
     it('should treat negative diffDays as same-day (no streak change)', () => {
       // Future lastScanDate (e.g., server received a scan with a clock ahead)
-      const user = makeUser({ lastScanDate: new Date('2024-06-16T12:00:00Z'), streakCount: 3, bestStreakCount: 3 });
+      const user = makeUser({
+        lastScanDate: new Date('2024-06-16T12:00:00Z'),
+        streakCount: 3,
+        bestStreakCount: 3,
+      });
       const result = processStreak(user, now, tz);
       expect(result.streakCount).toBe(3);
       expect(result.isFirstScanOfDay).toBe(false);
@@ -118,33 +154,54 @@ describe('processStreak', () => {
   // ── Milestone detection ────────────────────────────────────────────────────
   describe('milestone detection', () => {
     it('should detect a 7-day milestone', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 1), streakCount: 6, bestStreakCount: 6 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 1),
+        streakCount: 6,
+        bestStreakCount: 6,
+      });
       const result = processStreak(user, now, tz);
       expect(result.streakCount).toBe(7);
       expect(result.milestone).toBe(7);
     });
 
     it('should detect a 30-day milestone', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 1), streakCount: 29, bestStreakCount: 29 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 1),
+        streakCount: 29,
+        bestStreakCount: 29,
+      });
       const result = processStreak(user, now, tz);
       expect(result.milestone).toBe(30);
     });
 
     it('should detect a 100-day milestone', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 1), streakCount: 99, bestStreakCount: 99 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 1),
+        streakCount: 99,
+        bestStreakCount: 99,
+      });
       const result = processStreak(user, now, tz);
       expect(result.milestone).toBe(100);
     });
 
     it('should return null milestone on non-milestone days', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 1), streakCount: 4, bestStreakCount: 4 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 1),
+        streakCount: 4,
+        bestStreakCount: 4,
+      });
       const result = processStreak(user, now, tz);
       expect(result.milestone).toBeNull();
     });
 
     it('should not detect milestone when streak is lost', () => {
       // diffDays = 8 → missedDays = 7, but only 0 protectors
-      const user = makeUser({ lastScanDate: daysAgo(now, 8), streakCount: 29, bestStreakCount: 29, streakProtectors: 0 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 8),
+        streakCount: 29,
+        bestStreakCount: 29,
+        streakProtectors: 0,
+      });
       const result = processStreak(user, now, tz);
       expect(result.lostStreak).toBe(true);
       expect(result.milestone).toBeNull();
@@ -154,7 +211,12 @@ describe('processStreak', () => {
   // ── Exact protector boundary ───────────────────────────────────────────────
   describe('exact protector boundary', () => {
     it('should save streak when protectors exactly equal missed days', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 4), streakCount: 10, bestStreakCount: 10, streakProtectors: 3 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 4),
+        streakCount: 10,
+        bestStreakCount: 10,
+        streakProtectors: 3,
+      });
       // diffDays = 4, missedDays = 3, streakProtectors = 3 → exactly enough
       const result = processStreak(user, now, tz);
       expect(result.streakSaved).toBe(true);
@@ -163,7 +225,12 @@ describe('processStreak', () => {
     });
 
     it('should break streak when protectors are 1 short', () => {
-      const user = makeUser({ lastScanDate: daysAgo(now, 4), streakCount: 10, bestStreakCount: 10, streakProtectors: 2 });
+      const user = makeUser({
+        lastScanDate: daysAgo(now, 4),
+        streakCount: 10,
+        bestStreakCount: 10,
+        streakProtectors: 2,
+      });
       // diffDays = 4, missedDays = 3, streakProtectors = 2 → not enough
       const result = processStreak(user, now, tz);
       expect(result.lostStreak).toBe(true);

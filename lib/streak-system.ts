@@ -24,7 +24,7 @@ export function processStreak(
   // timezoneOffsetMinutes is the difference, in minutes, from UTC to local time.
   // e.g., for UTC-5 (EST), it's 300.
   // We want to calculate the "start of day" in the user's local timezone.
-  
+
   const getLocalStartOfDay = (date: Date) => {
     // Convert UTC time to local time by subtracting the offset
     const localTime = new Date(date.getTime() - timezoneOffsetMinutes * 60000);
@@ -34,7 +34,9 @@ export function processStreak(
   };
 
   const currentLocalStart = getLocalStartOfDay(currentScanDate);
-  const lastLocalStart = user.lastScanDate ? getLocalStartOfDay(new Date(user.lastScanDate)) : null;
+  const lastLocalStart = user.lastScanDate
+    ? getLocalStartOfDay(new Date(user.lastScanDate))
+    : null;
 
   if (!lastLocalStart) {
     return {
@@ -45,7 +47,7 @@ export function processStreak(
       streakSaved: false,
       isFirstScanOfDay: true,
       milestone: null,
-      lostStreak: false
+      lostStreak: false,
     };
   }
 
@@ -62,7 +64,7 @@ export function processStreak(
       streakSaved: false,
       isFirstScanOfDay: false,
       milestone: null,
-      lostStreak: false
+      lostStreak: false,
     };
   }
 
@@ -93,7 +95,10 @@ export function processStreak(
 
   // Check for recurring milestone
   let milestone: number | null = null;
-  if (!lostStreak && (newStreak % 7 === 0 || newStreak % 30 === 0 || newStreak % 100 === 0)) {
+  if (
+    !lostStreak &&
+    (newStreak % 7 === 0 || newStreak % 30 === 0 || newStreak % 100 === 0)
+  ) {
     milestone = newStreak;
   }
 
@@ -105,6 +110,6 @@ export function processStreak(
     streakSaved,
     isFirstScanOfDay: true,
     milestone,
-    lostStreak
+    lostStreak,
   };
 }

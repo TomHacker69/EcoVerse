@@ -88,7 +88,8 @@ export default function Dashboard() {
           stats.pointsSummary = rewardsData.pointsSummary;
           stats.level = rewardsData.level;
           stats.achievementCount = rewardsData.achievements?.length || 0;
-          stats.streakProtectors = rewardsData.specialFeatures?.streakProtectors || 0;
+          stats.streakProtectors =
+            rewardsData.specialFeatures?.streakProtectors || 0;
         }
 
         setUserStats(stats);

@@ -87,21 +87,21 @@ export const POINT_REWARDS = {
 
 // Level system - points needed for each level
 export const LEVEL_THRESHOLDS = [
-  0,      // Level 1
-  100,    // Level 2
-  250,    // Level 3
-  500,    // Level 4
-  1000,   // Level 5
-  2000,   // Level 6
-  3500,   // Level 7
-  5500,   // Level 8
-  8000,   // Level 9
-  12000,  // Level 10
-  18000,  // Level 11
-  25000,  // Level 12
-  35000,  // Level 13
-  50000,  // Level 14
-  75000,  // Level 15 (Max Level)
+  0, // Level 1
+  100, // Level 2
+  250, // Level 3
+  500, // Level 4
+  1000, // Level 5
+  2000, // Level 6
+  3500, // Level 7
+  5500, // Level 8
+  8000, // Level 9
+  12000, // Level 10
+  18000, // Level 11
+  25000, // Level 12
+  35000, // Level 13
+  50000, // Level 14
+  75000, // Level 15 (Max Level)
 ];
 
 // Reward shop items
@@ -313,7 +313,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   },
 ];
 
-feat/scan-streak-system-121-clean
+feat / scan - streak - system - 121 - clean;
 // Calculate points for a scan.
 // isFirstScanOfDay (default true) gates daily/streak bonuses — prevents
 // unlimited point farming when a user scans multiple products in one day.
@@ -405,7 +405,7 @@ export function calculateStreakUpdate(
   };
 }
 
-main
+main;
 export function calculateScanPoints(
   carbonEstimate: number,
   isFirstScan: boolean,
