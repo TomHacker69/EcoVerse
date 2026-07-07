@@ -62,16 +62,14 @@ export async function getCarbonFootprint(
 
     try {
       // Search for the emission factor
-      const searchResponse = await axios.get(climatiqUrl,
-        {
-          headers: { Authorization: `Bearer ${apiKey}` },
-          params: {
-            query: productName,
-            data_version: '^3',
-          },
-          timeout: 3000, // 3-second limit to keep scanner fast
-        }
-      );
+      const searchResponse = await axios.get(climatiqUrl, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+        params: {
+          query: productName,
+          data_version: '^3',
+        },
+        timeout: 3000, // 3-second limit to keep scanner fast
+      });
 
       const results = searchResponse.data?.results;
       if (results && results.length > 0) {
@@ -111,7 +109,9 @@ export async function getCarbonFootprint(
         // Validate CO2e value: reject negative or unreasonably high values
         if (typeof co2e === 'number') {
           if (co2e < 0 || co2e > 10000) {
-            console.warn(`[Climatiq API] Invalid CO2e value (${co2e}), using fallback`);
+            console.warn(
+              `[Climatiq API] Invalid CO2e value (${co2e}), using fallback`
+            );
             return fallback();
           }
           const result: CarbonFootprintResult = {
@@ -152,7 +152,7 @@ export async function getCarbonFootprint(
 
   return fallback();
 
-  function fallback() {
+  async function fallback() {
     const localData = calculateCarbonFootprint(productName, brand);
     const result: CarbonFootprintResult = {
       carbonFootprint: localData.carbonFootprint,
@@ -181,3 +181,4 @@ export async function getCarbonFootprint(
 
     return result;
   }
+}

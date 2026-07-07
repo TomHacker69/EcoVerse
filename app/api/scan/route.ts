@@ -49,8 +49,15 @@ export async function POST(req: Request) {
   }
 
   // Barcode validation: must be 8-14 digit string
-  if (typeof barcode !== 'string' || !/^\d{8,14}$/.test(barcode) || barcode.length > 14) {
-    return NextResponse.json({ error: 'Invalid barcode format' }, { status: 400 });
+  if (
+    typeof barcode !== 'string' ||
+    !/^\d{8,14}$/.test(barcode) ||
+    barcode.length > 14
+  ) {
+    return NextResponse.json(
+      { error: 'Invalid barcode format' },
+      { status: 400 }
+    );
   }
 
   try {
@@ -61,7 +68,10 @@ export async function POST(req: Request) {
       );
       product = productRes.data.product;
     } catch (offError) {
-      console.warn('Open Food Facts API failed, using barcode as fallback:', offError);
+      console.warn(
+        'Open Food Facts API failed, using barcode as fallback:',
+        offError
+      );
       product = { product_name: `Product ${barcode}`, brands: 'Unknown' };
     }
 
