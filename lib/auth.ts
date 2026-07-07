@@ -1,12 +1,39 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { cookies } from 'next/headers';
 
-const secretKey =
-  process.env.JWT_SECRET || 'fallback_secret_for_development_only';
-const key = new TextEncoder().encode(secretKey);
+const FALLBACK_SECRET = 'fallback_secret_for_development_only';
+
+function getSecretKey(): Uint8Array {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      'JWT_SECRET environment variable is required. ' +
+        'Generate one with: openssl rand -base64 32'
+    );
+  }
+  if (secret === FALLBACK_SECRET) {
+    throw new Error(
+      'JWT_SECRET must not use the known insecure fallback value. ' +
+        'Generate one with: openssl rand -base64 32'
+    );
+  }
+  return new TextEncoder().encode(secret);
+}
+
+let key: Uint8Array | null = null;
+
+function generateJTI(): string {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 10);
+  return `${timestamp}-${random}`;
+}
 
 export async function signToken(payload: { email: string; userId?: string }) {
-  return await new SignJWT(payload)
+  if (!key) key = getSecretKey();
+  return await new SignJWT({ ...payload, jti: generateJTI() })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('7d')
@@ -14,13 +41,26 @@ export async function signToken(payload: { email: string; userId?: string }) {
 }
 
 export async function verifyToken(token: string) {
+  if (!key) key = getSecretKey();
+
   try {
+    try {
+      const fallbackKey = new TextEncoder().encode(FALLBACK_SECRET);
+      await jwtVerify(token, fallbackKey, { algorithms: ['HS256'] });
+      console.warn(
+        '[SECURITY] Rejected token signed with known weak fallback secret'
+      );
+      return null;
+    } catch {
+      // Not signed with the old fallback secret
+    }
+
     const { payload } = await jwtVerify(token, key, {
       algorithms: ['HS256'],
     });
-    return payload as { email: string; userId?: string };
-  } catch (error) {
-    return null; // Invalid or expired token
+    return payload as { email: string; userId?: string; jti?: string };
+  } catch {
+    return null;
   }
 }
 
