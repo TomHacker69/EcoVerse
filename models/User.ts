@@ -7,6 +7,7 @@ export interface IScan {
   confidence: 'high' | 'medium' | 'low';
   barcode: string;
   date: Date;
+  source?: string;
 }
 
 export interface IRewardTransaction {
@@ -26,6 +27,18 @@ export interface IAchievement {
   description: string;
   earnedAt: Date;
   points: number;
+}
+
+export interface IMonthlyCarbonArchive {
+  month: number; // 0-11
+  year: number;
+  carbonSpent: number;
+  carbonGoal: number;
+  totalScans: number;
+  pointsEarned: number;
+  bonusAwarded: boolean;
+  bonusPoints: number;
+  archivedAt: Date;
 }
 
 export interface IPurchasedItem {
@@ -74,6 +87,9 @@ export interface IUser extends Document {
   // Monthly bonuses tracking
   lastMonthlyBonusCheck: Date | null;
   monthlyBonusesEarned: number;
+  // Monthly carbon cycle — reset + archive history (Issue #122)
+  lastMonthlyReset: Date | null;
+  monthlyCarbonHistory: IMonthlyCarbonArchive[];
   // Avatar selection and customization foundation (Issue #33)
   avatarId: string;
   avatarCustomization: Record<string, unknown>;
@@ -86,8 +102,16 @@ const ScanSchema = new mongoose.Schema({
   carbonEstimate: { type: Number, required: true },
   category: { type: String, required: true },
   confidence: { type: String, enum: ['high', 'medium', 'low'], required: true },
-  barcode: { type: String, required: true },
+  barcode: {
+    type: String,
+    required: true,
+    validate: {
+      validator: (v: string) => /^\d{8,14}$/.test(v),
+      message: 'Barcode must be 8-14 digits',
+    },
+  },
   date: { type: Date, default: Date.now },
+  source: { type: String, default: 'Local Calculator' },
 });
 
 const RewardTransactionSchema = new mongoose.Schema({
@@ -112,6 +136,21 @@ const AchievementSchema = new mongoose.Schema({
   points: { type: Number, required: true },
 });
 
+const MonthlyCarbonArchiveSchema = new mongoose.Schema(
+  {
+    month: { type: Number, required: true, min: 0, max: 11 },
+    year: { type: Number, required: true },
+    carbonSpent: { type: Number, required: true, default: 0 },
+    carbonGoal: { type: Number, required: true, default: 40 },
+    totalScans: { type: Number, required: true, default: 0 },
+    pointsEarned: { type: Number, required: true, default: 0 },
+    bonusAwarded: { type: Boolean, default: false },
+    bonusPoints: { type: Number, default: 0 },
+    archivedAt: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
 const PurchasedItemSchema = new mongoose.Schema({
   itemId: { type: String, required: true },
   name: { type: String, required: true },
@@ -131,42 +170,36 @@ const UserSchema = new mongoose.Schema(
     username: { type: String, default: null },
     full_name: { type: String, default: null },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: false, default: null }, // Managed by Firebase; not stored
+    password: { type: String, required: false, default: null },
     monthlyCarbon: { type: Number, default: 0 },
-    // User-configurable monthly CO2 target. null means the user hasn't set
-    // one yet — callers should fall back to a sensible default (40kg) rather
-    // than treating null as zero.
     monthlyCarbonGoal: { type: Number, default: null },
     totalScanned: { type: Number, default: 0 },
     joinedAt: { type: String, default: () => new Date().toISOString() },
     authProvider: { type: String, enum: ['email', 'google'], default: 'email' },
     firebaseUid: { type: String, sparse: true },
-    // Scan tracking
     scans: [ScanSchema],
     lastScanDate: { type: Date, default: null },
     streakCount: { type: Number, default: 0 },
     bestStreakCount: { type: Number, default: 0 },
-    // Rewards system - Enhanced with dual point system
-    rewardPoints: { type: Number, default: 0 }, // Legacy field - will be deprecated
-    confirmedPoints: { type: Number, default: 0 }, // Points that are confirmed and can be redeemed
-    unconfirmedPoints: { type: Number, default: 0 }, // Points pending confirmation
-    totalPointsEarned: { type: Number, default: 0 }, // Total of both confirmed and unconfirmed
+    rewardPoints: { type: Number, default: 0 },
+    confirmedPoints: { type: Number, default: 0 },
+    unconfirmedPoints: { type: Number, default: 0 },
+    totalPointsEarned: { type: Number, default: 0 },
     rewardTransactions: [RewardTransactionSchema],
     achievements: [AchievementSchema],
     level: { type: Number, default: 1 },
     nextLevelPoints: { type: Number, default: 100 },
-    // Purchased items from reward shop
     purchasedItems: [PurchasedItemSchema],
-    // Special features
-    streakProtectors: { type: Number, default: 0 }, // Number of streak protectors owned
-    doublePointsDays: { type: Number, default: 0 }, // Number of double points days owned
+    streakProtectors: { type: Number, default: 0 },
+    doublePointsDays: { type: Number, default: 0 },
     hasAdvancedAnalytics: { type: Boolean, default: false },
-    customAvatar: { type: String, default: null }, // URL or identifier for custom avatar
-    activeBadges: [{ type: String }], // Array of active badge IDs
-    // Monthly bonuses tracking
+    customAvatar: { type: String, default: null },
+    activeBadges: [{ type: String }],
     lastMonthlyBonusCheck: { type: Date, default: null },
     monthlyBonusesEarned: { type: Number, default: 0 },
-    // Avatar selection and customization foundation (Issue #33)
+    // Monthly carbon cycle (Issue #122)
+    lastMonthlyReset: { type: Date, default: null },
+    monthlyCarbonHistory: { type: [MonthlyCarbonArchiveSchema], default: [] },
     avatarId: { type: String, default: 'avatar-1' },
     avatarCustomization: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
@@ -174,6 +207,12 @@ const UserSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Index for auth token verification: look up by firebaseUid directly.
+UserSchema.index({ firebaseUid: 1 }, { sparse: true });
+
+// Index for sync query path: look up by email with firebaseUid population.
+UserSchema.index({ email: 1, firebaseUid: 1 });
 
 // Virtual for sustainability level
 UserSchema.virtual('sustainabilityLevel').get(function () {

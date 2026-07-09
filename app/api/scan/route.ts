@@ -1,19 +1,24 @@
+// Opt out of static generation - all handlers connect to MongoDB at request time.
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import axios from 'axios';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
 import mongoose from 'mongoose';
-import { calculateCarbonFootprint } from '@/lib/carbon-calculator';
+import { getCarbonFootprint } from '@/lib/climatiq';
 import {
   calculateScanPoints,
   calculateLevel,
   checkAchievements,
   calculateMonthlyBonus,
   confirmPendingPoints,
+  confirmAgedPoints,
   getUserPointsSummary,
   calculateStreakUpdate,
   shouldConfirmImmediately,
 } from '@/lib/rewards-system';
+import { checkAndRunMonthlyRollover } from '@/lib/monthly-cycle';
 import { inferPackaging } from '@/lib/packaging-inference';
 
 type OpenFoodFactsResponse = {
@@ -43,12 +48,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Barcode missing' }, { status: 400 });
   }
 
-  try {
-    const productRes = await axios.get<OpenFoodFactsResponse>(
-      `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`
+  // Barcode validation: must be 8-14 digit string
+  if (
+    typeof barcode !== 'string' ||
+    !/^\d{8,14}$/.test(barcode) ||
+    barcode.length > 14
+  ) {
+    return NextResponse.json(
+      { error: 'Invalid barcode format' },
+      { status: 400 }
     );
+  }
 
-    const product = productRes.data.product;
+  try {
+    let product;
+    try {
+      const productRes = await axios.get<OpenFoodFactsResponse>(
+        `https://world.openfoodfacts.org/api/v0/product/${barcode}.json`
+      );
+      product = productRes.data.product;
+    } catch (offError) {
+      console.warn(
+        'Open Food Facts API failed, using barcode as fallback:',
+        offError
+      );
+      product = { product_name: `Product ${barcode}`, brands: 'Unknown' };
+    }
 
     if (!product?.product_name) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
@@ -59,14 +84,19 @@ export async function POST(req: Request) {
     );
     const packaging = inferPackaging(categories);
 
-    const carbonData = calculateCarbonFootprint(
-      product.product_name,
-      product.brands
-    );
-    const carbonEstimate = carbonData.carbonFootprint;
-
     try {
       await dbConnect();
+
+      // Resolve carbon footprint using Climatiq with fallback
+      const carbonData = await getCarbonFootprint(
+        product.product_name,
+        product.brands
+      );
+      const carbonEstimate = carbonData.carbonFootprint;
+
+      // Run monthly rollover if the month has changed before any scan
+      // computations so monthlyCarbon is reset to 0 for the new month.
+      await checkAndRunMonthlyRollover(userEmail);
 
       // The streak/points calculation depends on a snapshot of the user
       // document (lastScanDate, streakCount, streakProtectors), but two
@@ -84,9 +114,15 @@ export async function POST(req: Request) {
       let oldLevel = 1;
       let pointsEarned = 0;
       let isConfirmed = false;
+      let actuallyInsertedAchievements: any[] = [];
+      let updatedUser: any = null;
+      let agedPointsConfirmed = false;
 
       for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
         const user = await User.findOne({ email: userEmail });
+
+        // Confirm any aged unconfirmed points before computing the response
+        agedPointsConfirmed = (await confirmAgedPoints(userEmail)) > 0;
 
         if (!user) {
           console.error('❌ No user found with email:', userEmail);
@@ -130,7 +166,11 @@ export async function POST(req: Request) {
         // in, so a concurrent scan can't cause this one to double-consume a
         // streak protector or double-increment the streak.
         initialUpdate = await User.findOneAndUpdate(
-          { email: userEmail, lastScanDate: previousLastScanDate },
+          {
+            email: userEmail,
+            lastScanDate: previousLastScanDate,
+            'scans.barcode': { $ne: barcode },
+          },
           {
             $inc: {
               monthlyCarbon: carbonEstimate,
@@ -154,6 +194,7 @@ export async function POST(req: Request) {
                 confidence: carbonData.confidence,
                 barcode: barcode,
                 date: scanTimestamp,
+                source: carbonData.source,
               },
               rewardTransactions: {
                 _id: new mongoose.Types.ObjectId(),
@@ -174,151 +215,153 @@ export async function POST(req: Request) {
         );
 
         if (initialUpdate) {
-          break; // Compare-and-set succeeded — no concurrent write raced us.
+          // Compare-and-set succeeded — now process achievements and
+          // level-up within the same retry scope. If any post-scan write
+          // fails, the next retry iteration re-reads fresh state and
+          // re-computes everything (achievement dedup via $ne and level
+          // $max are both idempotent).
+          try {
+            // --- ACHIEVEMENTS ---
+            const computedAchievements = checkAchievements
+              ? checkAchievements(initialUpdate)
+              : [];
+            actuallyInsertedAchievements = [];
+            updatedUser = initialUpdate;
+
+            if (computedAchievements.length > 0) {
+              const earnedAt = new Date();
+              const achievementRecords = computedAchievements.map((a: any) => ({
+                id: a.id,
+                name: a.name,
+                description: a.description,
+                points: a.points,
+                earnedAt,
+              }));
+
+              const isAchievementConfirmed = shouldConfirmImmediately
+                ? shouldConfirmImmediately('achievement')
+                : true;
+
+              actuallyInsertedAchievements = [];
+              for (const record of achievementRecords) {
+                const inserted = await User.findOneAndUpdate(
+                  {
+                    email: userEmail,
+                    'achievements.id': { $ne: record.id },
+                  },
+                  {
+                    $push: {
+                      achievements: record,
+                      rewardTransactions: {
+                        _id: new mongoose.Types.ObjectId(),
+                        type: 'earned',
+                        points: record.points,
+                        pointsType: isAchievementConfirmed
+                          ? 'confirmed'
+                          : 'unconfirmed',
+                        reason: 'achievement',
+                        description: `Earned: ${record.name}`,
+                        date: earnedAt,
+                        confirmedAt: isAchievementConfirmed ? earnedAt : null,
+                      },
+                    },
+                    $inc: {
+                      rewardPoints: record.points,
+                      totalPointsEarned: record.points,
+                      confirmedPoints: isAchievementConfirmed
+                        ? record.points
+                        : 0,
+                      unconfirmedPoints: isAchievementConfirmed
+                        ? 0
+                        : record.points,
+                    },
+                  },
+                  { new: false }
+                );
+                if (inserted) {
+                  const original = computedAchievements.find(
+                    (a: any) => a.id === record.id
+                  );
+                  if (original) actuallyInsertedAchievements.push(original);
+                }
+              }
+            }
+
+            // --- LEVEL-UP ---
+            const latestForLevel = await User.findOne({ email: userEmail });
+            const levelData = calculateLevel
+              ? calculateLevel(latestForLevel?.totalPointsEarned || 0)
+              : { level: oldLevel };
+
+            if (levelData.level > oldLevel) {
+              await User.updateOne(
+                { email: userEmail },
+                {
+                  $max: { level: levelData.level },
+                  $set: { updatedAt: new Date() },
+                }
+              );
+            }
+
+            // All post-scan writes succeeded — exit the retry loop.
+            // Re-fetch the user if achievements or level changed.
+            if (
+              levelData.level > oldLevel ||
+              actuallyInsertedAchievements.length > 0
+            ) {
+              const freshUser = await User.findOne({ email: userEmail });
+              if (!freshUser) {
+                console.error(
+                  '❌ User document missing after scan update:',
+                  userEmail
+                );
+                return NextResponse.json(
+                  { error: 'User account no longer exists' },
+                  { status: 404 }
+                );
+              }
+              updatedUser = freshUser;
+            }
+
+            // Store final state for response and break retry loop
+            initialUpdate = updatedUser;
+            break;
+          } catch (_postError) {
+            // Post-scan write failed (achievement or level-up). Log and
+            // retry the entire cycle from fresh state — the compare-and-set
+            // guard on lastScanDate ensures we don't double-count the scan.
+            console.warn(
+              `Post-scan write failed, retry ${attempt + 1}/${MAX_RETRIES}:`,
+              _postError
+            );
+            initialUpdate = null;
+          }
         }
-        // Filter didn't match: another request updated lastScanDate between
-        // our read and write. Loop and retry against the fresh state.
+        // Filter didn't match (another request updated lastScanDate) or
+        // post-scan writes failed — retry against fresh state.
       }
 
       if (!initialUpdate || !streakUpdate || !pointsData) {
-        return NextResponse.json(
-          {
-            error:
-              'Scan could not be recorded due to concurrent updates. Please try again.',
-          },
-          { status: 409 }
+        const alreadyScanned = await User.findOne(
+          { email: userEmail, 'scans.barcode': barcode },
+          { projection: { _id: 1 } }
         );
+        const reason = alreadyScanned
+          ? 'This product has already been scanned.'
+          : 'Scan could not be recorded due to concurrent updates. Please try again.';
+        return NextResponse.json({ error: reason }, { status: 409 });
       }
 
-      // --- POST-UPDATE DERIVED CALCULATIONS ---
-      // Achievements are checked first, since their points must be credited
-      // to the user's balance before level is computed — otherwise a level
-      // earned via an achievement's points (rather than scan points alone)
-      // would be missed.
-      const earnedAchievements = checkAchievements
-        ? checkAchievements(initialUpdate)
-        : [];
+      // Refresh user snapshot if confirmAgedPoints made changes
+      // and achievements/level-up didn't already re-fetch
+      if (agedPointsConfirmed && updatedUser) {
+        const freshUser = await User.findOne({ email: userEmail });
+        if (freshUser) updatedUser = freshUser;
+      }
+
       const monthlyBonus = calculateMonthlyBonus
         ? calculateMonthlyBonus(initialUpdate)
         : 0;
-
-      let updatedUser = initialUpdate;
-      let actuallyInsertedAchievements = earnedAchievements;
-
-      if (earnedAchievements.length > 0) {
-        const earnedAt = new Date();
-        // Map from Achievement (the static definition, with a `condition`
-        // function and `icon`) to IAchievement (the persisted earned-record
-        // shape, with `earnedAt` instead) — pushing the raw definition would
-        // try to store a function and never set earnedAt.
-        const achievementRecords = earnedAchievements.map((achievement) => ({
-          id: achievement.id,
-          name: achievement.name,
-          description: achievement.description,
-          points: achievement.points,
-          earnedAt,
-        }));
-
-        const isAchievementConfirmed = shouldConfirmImmediately
-          ? shouldConfirmImmediately('achievement')
-          : true;
-
-        // Insert each achievement individually via its own findOneAndUpdate
-        // (rather than batching into bulkWrite) so the return value of each
-        // call tells us, unambiguously, whether THIS write was the one that
-        // inserted that specific achievement — null means the filter didn't
-        // match (already present, whether from this user's own prior scan or
-        // a concurrent request that won the race), so we don't double-credit
-        // points for it.
-        //
-        // The points $inc and reward transaction $push are folded into this
-        // same write (rather than a separate aggregate update afterward) so
-        // that an achievement is never persisted without its points being
-        // credited in the same atomic operation — closing the crash window
-        // where a failure between two separate writes could leave an
-        // achievement recorded with no way to recover its points, since
-        // checkAchievements skips already-earned IDs on every later scan.
-        actuallyInsertedAchievements = [];
-        for (const record of achievementRecords) {
-          const inserted = await User.findOneAndUpdate(
-            {
-              email: userEmail,
-              'achievements.id': { $ne: record.id },
-            },
-            {
-              $push: {
-                achievements: record,
-                rewardTransactions: {
-                  _id: new mongoose.Types.ObjectId(),
-                  type: 'earned',
-                  points: record.points,
-                  pointsType: isAchievementConfirmed
-                    ? 'confirmed'
-                    : 'unconfirmed',
-                  reason: 'achievement',
-                  description: `Earned: ${record.name}`,
-                  date: earnedAt,
-                  confirmedAt: isAchievementConfirmed ? earnedAt : null,
-                },
-              },
-              $inc: {
-                rewardPoints: record.points,
-                totalPointsEarned: record.points,
-                confirmedPoints: isAchievementConfirmed ? record.points : 0,
-                unconfirmedPoints: isAchievementConfirmed ? 0 : record.points,
-              },
-            },
-            { new: false } // we only need to know whether it matched
-          );
-          if (inserted) {
-            const original = earnedAchievements.find((a) => a.id === record.id);
-            if (original) actuallyInsertedAchievements.push(original);
-          }
-        }
-      }
-
-      // Recompute level off the up-to-date total, now that achievement
-      // points (if any) have been credited.
-      const latestForLevel = await User.findOne({ email: userEmail });
-      const levelData = calculateLevel
-        ? calculateLevel(latestForLevel?.totalPointsEarned || 0)
-        : { level: oldLevel };
-
-      if (levelData.level > oldLevel) {
-        // $max only applies the update if the new value is actually
-        // greater, which is itself a safe guard against a concurrent
-        // request regressing the level.
-        await User.updateOne(
-          { email: userEmail },
-          {
-            $max: { level: levelData.level },
-            $set: { updatedAt: new Date() },
-          }
-        );
-      }
-
-      if (
-        levelData.level > oldLevel ||
-        actuallyInsertedAchievements.length > 0
-      ) {
-        const freshUser = await User.findOne({ email: userEmail });
-        if (!freshUser) {
-          // The user document vanished between our writes and this read
-          // (e.g. concurrent account deletion). Don't silently fall back to
-          // the stale initialUpdate snapshot — it predates the level and
-          // achievement updates we just persisted, so the response would
-          // misrepresent the actual (now-nonexistent) account state.
-          console.error(
-            '❌ User document missing after scan update:',
-            userEmail
-          );
-          return NextResponse.json(
-            { error: 'User account no longer exists' },
-            { status: 404 }
-          );
-        }
-        updatedUser = freshUser;
-      }
 
       // We use the ground-truth data from 'updatedUser' for the final response.
       // This ensures the UI is always in sync with the actual database state.
@@ -337,6 +380,7 @@ export async function POST(req: Request) {
         category: carbonData.category,
         confidence: carbonData.confidence,
         calculation: carbonData.calculation,
+        source: carbonData.source,
         ingredients: product.ingredients_text || 'Not available',
         image: productImage,
         packaging,
@@ -351,6 +395,7 @@ export async function POST(req: Request) {
           streakCount: updatedUser.streakCount,
           bestStreakCount: updatedUser.bestStreakCount,
           streakProtectorUsed: streakUpdate.streakProtectorsUsed > 0,
+          streakProtectorsUsed: streakUpdate.streakProtectorsUsed,
           streakBroken: streakUpdate.streakBroken,
           monthlyBonus,
           sustainabilityTier:

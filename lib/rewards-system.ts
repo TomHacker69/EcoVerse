@@ -20,11 +20,11 @@ export interface RewardTransaction {
   _id?: string;
   type: 'earned' | 'redeemed';
   points: number;
-  pointsType: 'confirmed' | 'unconfirmed';
+  pointsType: 'confirmed' | 'unconfirmed' | string;
   reason: string;
   description: string;
   date: Date;
-  confirmedAt?: Date;
+  confirmedAt?: Date | null;
 }
 
 export interface RewardShopItem {
@@ -87,8 +87,21 @@ export const POINT_REWARDS = {
 
 // Level system - points needed for each level
 export const LEVEL_THRESHOLDS = [
-  0, 100, 250, 500, 1000, 2000, 3500, 5500, 8000, 12000, 18000, 25000, 35000,
-  50000, 75000,
+  0, // Level 1
+  100, // Level 2
+  250, // Level 3
+  500, // Level 4
+  1000, // Level 5
+  2000, // Level 6
+  3500, // Level 7
+  5500, // Level 8
+  8000, // Level 9
+  12000, // Level 10
+  18000, // Level 11
+  25000, // Level 12
+  35000, // Level 13
+  50000, // Level 14
+  75000, // Level 15 (Max Level)
 ];
 
 // Reward shop items
@@ -300,6 +313,9 @@ export const ACHIEVEMENTS: Achievement[] = [
   },
 ];
 
+// Calculate points for a scan.
+// isFirstScanOfDay (default true) gates daily/streak bonuses — prevents
+// unlimited point farming when a user scans multiple products in one day.
 // Calculates the next streak state for a scan happening "now", given the
 // user's last scan date and current streak. Pure function — no DB access —
 // so the route layer can compute the values to persist atomically.
@@ -365,18 +381,20 @@ export function calculateStreakUpdate(
     };
   }
 
-  // Gap of more than one day: try to bridge it with a streak protector.
-  // One protector covers exactly one missed day, regardless of gap size,
-  // matching the shop item's description ("protect your streak for one
-  // missed day").
-  if (dayGap === 2 && streakProtectors > 0) {
-    const newStreak = currentStreak + 1;
-    return {
-      streakCount: newStreak,
-      bestStreakCount: Math.max(bestStreak, newStreak),
-      streakProtectorsUsed: 1,
-      streakBroken: false,
-    };
+  // Gap of more than one day: try to bridge with streak protectors.
+  // Each protector covers one missed day. If the user has enough
+  // protectors for all missed days, the streak is preserved.
+  if (dayGap > 1) {
+    const missedDays = dayGap - 1;
+    if (streakProtectors >= missedDays) {
+      const newStreak = currentStreak + 1;
+      return {
+        streakCount: newStreak,
+        bestStreakCount: Math.max(bestStreak, newStreak),
+        streakProtectorsUsed: missedDays,
+        streakBroken: false,
+      };
+    }
   }
 
   // Streak broken — today's scan starts a fresh streak.
@@ -392,7 +410,8 @@ export function calculateScanPoints(
   carbonEstimate: number,
   isFirstScan: boolean,
   streakCount: number,
-  userTotalScans: number = 0
+  userTotalScans: number = 0,
+  isFirstScanOfDay: boolean = true
 ): {
   points: number;
   reasons: string[];
@@ -408,11 +427,12 @@ export function calculateScanPoints(
   if (isFirstScan) {
     points += POINT_REWARDS.FIRST_SCAN;
     reasons.push(`First scan bonus: +${POINT_REWARDS.FIRST_SCAN} points`);
-  } else {
+  } else if (isFirstScanOfDay) {
     points += POINT_REWARDS.DAILY_SCAN;
     reasons.push(`Daily scan: +${POINT_REWARDS.DAILY_SCAN} points`);
   }
 
+  // Carbon footprint bonuses (always awarded regardless of scan-of-day status)
   if (carbonEstimate < 0.5) {
     points += POINT_REWARDS.VERY_LOW_CARBON_SCAN;
     reasons.push(
@@ -425,13 +445,15 @@ export function calculateScanPoints(
     );
   }
 
-  if (streakCount > 1) {
+  // Streak bonus — gated behind isFirstScanOfDay to prevent farming
+  if (isFirstScanOfDay && streakCount > 1) {
     const streakBonus = Math.min(streakCount * POINT_REWARDS.STREAK_BONUS, 100);
     points += streakBonus;
     reasons.push(`${streakCount}-day streak bonus: +${streakBonus} points`);
   }
 
-  if (streakCount === 7) {
+  // Weekly milestone bonus — gated behind isFirstScanOfDay
+  if (isFirstScanOfDay && streakCount === 7) {
     points += POINT_REWARDS.WEEKLY_GOAL;
     reasons.push(
       `Weekly milestone bonus: +${POINT_REWARDS.WEEKLY_GOAL} points`
@@ -441,6 +463,7 @@ export function calculateScanPoints(
   return { points, reasons, isConfirmed };
 }
 
+// Enhanced level calculation
 export function calculateLevel(totalPoints: number): {
   level: number;
   nextLevelPoints: number;
@@ -545,7 +568,8 @@ export function getSustainabilityTier(
   };
 }
 
-export function confirmPendingPoints(user: RewardUser): {
+// Confirm pending points that meet the confirmation threshold
+export function confirmPendingPoints(user: UserPointsData): {
   confirmedPoints: number;
   confirmedTransactions: IRewardTransaction[];
 } {
@@ -580,6 +604,49 @@ export function confirmPendingPoints(user: RewardUser): {
 
 export function shouldConfirmImmediately(reason: string): boolean {
   return POINT_CONFIRMATION.IMMEDIATE_CONFIRMATION.includes(reason);
+}
+
+export async function confirmAgedPoints(email: string): Promise<number> {
+  const cutoff = new Date(
+    Date.now() - POINT_CONFIRMATION.CONFIRMATION_DELAY_HOURS * 60 * 60 * 1000
+  );
+  const { default: User } = await import('@/models/User');
+
+  const user = await User.findOne({ email, unconfirmedPoints: { $gt: 0 } });
+  if (!user) return 0;
+
+  const agedPoints = (user.rewardTransactions || [])
+    .filter(
+      (t: IRewardTransaction) =>
+        t.pointsType === 'unconfirmed' &&
+        t.type === 'earned' &&
+        t.date <= cutoff
+    )
+    .reduce((sum: number, t: IRewardTransaction) => sum + (t.points || 0), 0);
+
+  if (agedPoints === 0) return 0;
+
+  await User.updateOne(
+    { email },
+    {
+      $inc: { confirmedPoints: agedPoints, unconfirmedPoints: -agedPoints },
+      $set: {
+        'rewardTransactions.$[eligible].pointsType': 'confirmed',
+        'rewardTransactions.$[eligible].confirmedAt': new Date(),
+      },
+    },
+    {
+      arrayFilters: [
+        {
+          'eligible.pointsType': 'unconfirmed',
+          'eligible.type': 'earned',
+          'eligible.date': { $lte: cutoff },
+        },
+      ],
+    }
+  );
+
+  return agedPoints;
 }
 
 export function getUserPointsSummary(user: RewardUser): {

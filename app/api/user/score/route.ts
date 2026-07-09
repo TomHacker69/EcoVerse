@@ -1,3 +1,6 @@
+// Opt out of static generation - all handlers connect to MongoDB at request time.
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import dbConnect from '@/lib/mongodb';
 import User from '@/models/User';
@@ -7,8 +10,10 @@ import {
   getSustainabilityTier,
   calculateScanPoints,
   checkAchievements,
+  confirmAgedPoints,
   shouldConfirmImmediately,
 } from '@/lib/rewards-system';
+import { checkAndRunMonthlyRollover } from '@/lib/monthly-cycle';
 
 export async function GET(req: Request) {
   const email = req.headers.get('x-user-email');
@@ -19,6 +24,7 @@ export async function GET(req: Request) {
 
   try {
     await dbConnect();
+    await checkAndRunMonthlyRollover(email);
     const user = await User.findOne({ email }).lean();
 
     if (!user) {
@@ -141,6 +147,7 @@ export async function POST(req: Request) {
     }
 
     await dbConnect();
+    await checkAndRunMonthlyRollover(email);
     const user = await User.findOne({ email });
 
     if (!user) {
@@ -204,6 +211,9 @@ export async function POST(req: Request) {
 
     const oldLevel = user.level || 1;
 
+    // Confirm any aged unconfirmed points before recording new scan
+    await confirmAgedPoints(email);
+
     // Transform Achievement[] to IAchievement[] before persisting
     const earnedAt = new Date();
     const achievementRecords = earnedAchievements.map((achievement) => ({
@@ -242,6 +252,7 @@ export async function POST(req: Request) {
             confidence: 'medium',
             barcode: `MANUAL-${Date.now()}`,
             date: new Date(),
+            source: 'Manual Entry',
           },
           rewardTransactions: {
             _id: new mongoose.Types.ObjectId(),
@@ -365,6 +376,7 @@ export async function PATCH(req: Request) {
     }
 
     await dbConnect();
+    await checkAndRunMonthlyRollover(email);
 
     const updatedUser = await User.findOneAndUpdate(
       { email },
