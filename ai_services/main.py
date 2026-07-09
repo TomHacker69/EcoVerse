@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Header
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import update, func
@@ -163,19 +163,28 @@ def get_leaderboard_get(requesting_user_id: str, db: Session = Depends(get_db)):
 
 # --- ENDPOINT 5: User Profile ---
 @app.get("/api/users/{user_id}")
-def get_user_profile(user_id: str, db: Session = Depends(get_db)):
-    # 1. Query the database for the specific user
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+def get_user_profile(user_id: str, db: Session = Depends(get_db), x_caller_id: str = Header(None)):
     
-    # 2. Protect the server with a 404 error if the user doesn't exist
+    # 1. SECURITY CHECK: Check if the x_caller_id matches the user_id in the URL
+    if ___ != ___:
+        raise HTTPException(status_code=403, detail="Not authorized to view this profile.")
+
+    # Fetch the user
+    user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
         
-    # 3. Return the user's base stats alongside their related scans and badges
+    # 2. FLATTEN THE LISTS: Convert the ORM objects into plain dictionaries
+    # Hint: Use a list comprehension to grab the fields you want to show the frontend
+    safe_scans = [{"product_name": s.product_name, "carbon_footprint_kg": s.carbon_footprint_kg} for s in user.scans]
+    safe_badges = [ ___ for b in user.badges ] # <-- You write the list comprehension for badges!
+
+    # 3. NULL FALLBACK: Protect the round() function
     return {
         "success": True,
         "user_id": user.id,
-        "total_emissions_kg": round(user.total_emissions_kg, 2),
-        "scans": user.scans,
-        "badges": user.badges
+        # Hint: Use 'or 0.0' inside the round function
+        "total_emissions_kg": round( ___ , 2), 
+        "scans": safe_scans,
+        "badges": safe_badges
     }
