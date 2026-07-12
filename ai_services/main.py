@@ -86,6 +86,20 @@ def create_scan(scan_data: ScanCreate, db: Session = Depends(get_db)):
     db.commit()
     return {"success": True, "message": "Scan logged to database!"}
 
+# ... existing user update logic ...
+    db.execute(
+        update(models.User)
+        .where(models.User.id == scan_data.user_id)
+        .values(total_emissions_kg=models.User.total_emissions_kg + scan_data.carbon_footprint_kg)
+    )
+    
+    db.commit()
+    
+    # Run the gamification engine to check for new badges
+    evaluate_and_award_badges(scan_data.user_id, db)
+
+    return {"success": True, "message": "Scan logged to database!"}
+
 # --- ENDPOINT 3: Analytics ---
 @app.post("/api/analytics")
 def get_analytics(data: AnalyticsRequest, db: Session = Depends(get_db)):
@@ -188,3 +202,31 @@ def get_user_profile(user_id: str, db: Session = Depends(get_db), x_caller_id: s
         "scans": safe_scans,
         "badges": safe_badges
     }
+# --- GAMIFICATION ENGINE ---
+def evaluate_and_award_badges(user_id: str, db: Session):
+    # 1. Count the user's total scans
+    scan_count = db.query(models.Scan).filter(models.Scan.user_id == user_id).count()
+
+    # 2. MILESTONE 1: First Scan
+    if scan_count >= 1:
+        existing_badge = db.query(models.UserBadge).filter(
+            models.UserBadge.user_id == user_id,
+            models.UserBadge.badge_id == "first_scan"
+        ).first()
+
+        if not existing_badge:
+            new_badge = models.UserBadge(user_id=user_id, badge_id="first_scan")
+            db.add(new_badge)
+            db.commit()
+
+    # 3. MILESTONE 2: Ten Scans (Eco-Novice)
+    if scan_count >= 10:
+        existing_badge = db.query(models.UserBadge).filter(
+            models.UserBadge.user_id == user_id,
+            models.UserBadge.badge_id == "eco_novice"
+        ).first()
+
+        if not existing_badge:
+            new_badge = models.UserBadge(user_id=user_id, badge_id="eco_novice")
+            db.add(new_badge)
+            db.commit()
