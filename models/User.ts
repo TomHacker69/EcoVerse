@@ -247,8 +247,12 @@ function hydrateMissingFields(doc: any) {
     streakCount: 0,
     totalScanned: 0,
     monthlyCarbon: 0,
+    lastScanDate: null,
   };
   for (const [key, value] of Object.entries(defaults)) {
+    if (typeof doc.isSelected === 'function' && !doc.isSelected(key)) {
+      continue;
+    }
     if (doc[key] === undefined || doc[key] === null) {
       doc[key] = value;
     }

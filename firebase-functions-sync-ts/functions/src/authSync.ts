@@ -32,6 +32,7 @@ export const handleUserSignup = functions.auth.user().onCreate(async (user) => {
       name: user.displayName || user.email?.split("@")[0] || "User",
       authProvider: "google",
       createdAt: new Date(),
+      updatedAt: new Date(),
       monthlyCarbon: 0,
       monthlyCarbonGoal: null,
       totalScanned: 0,
