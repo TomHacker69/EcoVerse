@@ -12,6 +12,7 @@ import {
   BarChart3,
   Gift,
   TrendingDown,
+  Calculator,
   LogOut,
 } from 'lucide-react';
 import Image from 'next/image';
@@ -36,6 +37,7 @@ const navigation = [
   { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Rewards', href: '/rewards', icon: Gift },
+  { name: 'Footprint Calc', href: '/carbon-calculator', icon: Calculator },
 ];
 
 export default function DashboardLayout({
