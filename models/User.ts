@@ -41,6 +41,15 @@ export interface IMonthlyCarbonArchive {
   archivedAt: Date;
 }
 
+export interface ITreePlantationEntry {
+  date: Date;
+  treesPlanted: number;
+  location?: string;
+  treeType?: string;
+  notes?: string;
+  carbonOffset: number; // Estimated CO₂ offset in kg
+}
+
 export interface IPurchasedItem {
   itemId: string;
   name: string;
@@ -87,6 +96,8 @@ export interface IUser extends Document {
   // Monthly bonuses tracking
   lastMonthlyBonusCheck: Date | null;
   monthlyBonusesEarned: number;
+  // Tree plantation tracking (Issue #241)
+  treePlantations: ITreePlantationEntry[];
   // Monthly carbon cycle — reset + archive history (Issue #122)
   lastMonthlyReset: Date | null;
   monthlyCarbonHistory: IMonthlyCarbonArchive[];
@@ -135,6 +146,26 @@ const AchievementSchema = new mongoose.Schema({
   earnedAt: { type: Date, default: Date.now },
   points: { type: Number, required: true },
 });
+
+const TreePlantationSchema = new mongoose.Schema(
+  {
+    date: { type: Date, default: Date.now },
+    treesPlanted: {
+      type: Number,
+      required: true,
+      min: 1,
+      validate: {
+        validator: (v: number) => Number.isFinite(v) && v > 0,
+        message: 'treesPlanted must be a positive number',
+      },
+    },
+    location: { type: String, default: '' },
+    treeType: { type: String, default: '' },
+    notes: { type: String, default: '' },
+    carbonOffset: { type: Number, default: 0 }, // Estimated CO₂ offset in kg
+  },
+  { _id: false }
+);
 
 const MonthlyCarbonArchiveSchema = new mongoose.Schema(
   {
@@ -200,6 +231,8 @@ const UserSchema = new mongoose.Schema(
     // Monthly carbon cycle (Issue #122)
     lastMonthlyReset: { type: Date, default: null },
     monthlyCarbonHistory: { type: [MonthlyCarbonArchiveSchema], default: [] },
+    // Tree plantation tracking (Issue #241)
+    treePlantations: { type: [TreePlantationSchema], default: [] },
     avatarId: { type: String, default: 'avatar-1' },
     avatarCustomization: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
