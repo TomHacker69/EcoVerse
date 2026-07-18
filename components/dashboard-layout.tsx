@@ -14,6 +14,7 @@ import {
   TrendingDown,
   TreePine,
   LogOut,
+  Medal,
 } from 'lucide-react';
 import Image from 'next/image';
 
@@ -37,7 +38,7 @@ const navigation = [
   { name: 'Leaderboard', href: '/leaderboard', icon: Trophy },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Rewards', href: '/rewards', icon: Gift },
-  { name: 'Tree Plantation', href: '/tree-plantation', icon: TreePine },
+  { name: 'Badges', href: '/badges', icon: Medal },
 ];
 
 export default function DashboardLayout({
